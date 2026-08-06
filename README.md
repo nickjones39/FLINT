@@ -9,13 +9,13 @@ detector it ships an evasion testbed demonstrating that structural graph attacks
 silence it; only attacks on the trust labels themselves can.
 
 This is the standalone, open-source detection/evasion framework. It is the capstone
-software of the thesis *Provenance-Based Cybersecurity for Large Language Models*
+software of the thesis *Provenance-Aware Security for Large Language Model Systems*
 (Nicholas Jones, Torrens University Australia) and the manuscript *Trust
 Attribution, Not Graph Structure: Locating the Security Signal in Provenance-Based
 Defences for LLM Agents*. The manuscript, its experiment scripts (learned structural
 baselines, white-box adaptive mimicry, endorsement and signed-label studies, cross-model
-analysis), and the generated figures/tables live in a separate (private) repository;
-this repo is the reusable library and detector implementations.
+analysis), and the generated figures/tables are not included in this repository, as the
+framework's purpose is to be a reference tool for other experiments or research.
 
 > **What FLINT does not do.** FLINT does not run agents or capture provenance. It
 > consumes PROV-JSON traces produced elsewhere — e.g. by the companion
@@ -148,6 +148,6 @@ MIT — see [LICENSE](LICENSE).
 If you use FLINT, please cite:
 
 ```
-Nicholas Jones. Provenance-Based Cybersecurity for Large Language Models.
+Nicholas Jones. Provenance-Aware Security for Large Language Model Systems.
 Torrens University Australia, 2026. Code: https://github.com/nickjones39/FLINT
 ```
