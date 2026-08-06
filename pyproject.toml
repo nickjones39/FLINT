@@ -1,0 +1,35 @@
+[project]
+name = "flint"
+version = "0.1.0"
+description = "FLINT: Flow-INtegrity Tracking — flow-typed provenance security for LLM agents"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+dependencies = [
+    "networkx>=3.3",          # typed provenance graph (Layer 1)
+    "pyyaml>=6.0",            # sweep config
+    "pandas>=2.2",            # metrics / parquet tables
+    "pyarrow>=16.0",          # parquet sink for the Layer-3 sweep
+    "prov>=2.1",              # PROV model — example-graph render (Layer 1 visualize.py)
+    "pydot>=3.0",             # render PROV graphs to PNG/SVG (needs the graphviz `dot` binary)
+    "matplotlib>=3.8",        # figures
+    "numpy>=1.26",            # figures + numeric helpers
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+
+# Note: rendering PROV graphs also needs the Graphviz `dot` system binary
+# (e.g. `brew install graphviz` / `apt-get install graphviz`), which pip cannot provide.
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["flint*"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"

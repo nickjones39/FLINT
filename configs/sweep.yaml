@@ -1,0 +1,19 @@
+# FLINT sweep configuration
+# Runs every combination of detector x adversary.
+# Pass to runner.py via --config configs/sweep.yaml
+#
+# The compression axis was removed in 2026-08: the compression-as-a-security-
+# property contribution lives in the companion CompProGraph paper, and the
+# detection manuscripts do not use it. The sweep still emits a constant
+# `compression` column (runner.COMPRESSION) so the downstream grouping key
+# (detector, compression, adversary) is unchanged.
+
+detectors:
+  - f_flow
+  - f_emb
+
+adversaries:
+  - none
+  - structural_mimicry
+  - trust_attribution_endorser
+  - trust_attribution_relabel
