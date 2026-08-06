@@ -2,52 +2,68 @@
 
 Flow-typed provenance security for LLM agents.
 
-FLINT takes an LLM agent's execution captured as [W3C PROV](https://www.w3.org/TR/prov-overview/),
-detects prompt-injection attacks by information-flow reachability, compresses the
-provenance graph while preserving that detection, and runs an evasion testbed against
-both a structural detector and a trust-attribution attacker.
+FLINT takes an LLM agent's execution captured as [W3C PROV](https://www.w3.org/TR/prov-overview/)
+and decides whether untrusted-origin data reached a privileged action along a path with
+no authorised endorsement — the signature of a successful prompt injection. Around that
+detector it ships an evasion testbed demonstrating that structural graph attacks cannot
+silence it; only attacks on the trust labels themselves can.
 
-This is the standalone, open-source detection/compression/evasion framework. It is the
-capstone software of the thesis *Provenance-Based Cybersecurity for Large Language
-Models* (Nicholas Jones, Torrens University Australia) and the manuscript *Trust
+This is the standalone, open-source detection/evasion framework. It is the capstone
+software of the thesis *Provenance-Based Cybersecurity for Large Language Models*
+(Nicholas Jones, Torrens University Australia) and the manuscript *Trust
 Attribution, Not Graph Structure: Locating the Security Signal in Provenance-Based
-Defences for LLM Agents*. The manuscript, experiment scripts, and generated
-figures/tables live in a separate (private) repository; this repo is the reusable
-library and detector implementations.
+Defences for LLM Agents*. The manuscript, its experiment scripts (learned structural
+baselines, white-box adaptive mimicry, endorsement and signed-label studies, cross-model
+analysis), and the generated figures/tables live in a separate (private) repository;
+this repo is the reusable library and detector implementations.
 
 > **What FLINT does not do.** FLINT does not run agents or capture provenance. It
 > consumes PROV-JSON traces produced elsewhere — e.g. by the companion
 > [AgentDojo-PROV](https://doi.org/10.5281/zenodo.21052314) corpus (17,664 traces
-> across six LLM backends, published on Zenodo) — and performs detection, compression,
-> and adversarial evaluation on them.
+> across six LLM backends, published on Zenodo) — and performs detection and
+> adversarial evaluation on them. It also does not compress provenance graphs:
+> lossless provenance-graph compression is a separate published contribution
+> (N. Jones, M. Whaiduzzaman, T. Jan, IEEE Trans. Artificial Intelligence, 2026,
+> doi:10.1109/TAI.2026.3678891) and is not part of this framework.
 
 ---
 
 ## What's here
 
-1. **Graph layer** (`flint/layer1_graph/`) — PROV-JSON → a typed NetworkX graph with
-   flow-relation edge orientations, plus compression operators:
-   - `κ_none` — identity (no compression)
-   - `κ_naive` — top-K downsampling (a reachability-lossy baseline)
-   - `κ_flow` — a flow-preserving structural merge that provably preserves `f_flow`'s
-     verdict
+1. **Graph layer** (`flint/layer1_graph/`) — PROV-JSON → a typed NetworkX graph; the
+   flow relation (information-bearing orientations of `used`, `wasGeneratedBy`,
+   `wasDerivedFrom`, `wasInformedBy`); endorsement-avoiding reachability with witness
+   extraction; a Graphviz renderer in W3C PROV visual notation.
 2. **Detectors** (`flint/layer2_detectors/`):
-   - `f_flow` — a label-aware detector: fires iff untrusted-origin data reaches a
+   - `f_flow` — the label-aware detector: fires iff untrusted-origin data reaches a
      privileged sink along a path with no authorised endorsement (a Biba/Denning-style
-     integrity reachability predicate).
-   - `f_emb` — a structural, integrity-agnostic neighbourhood-hash baseline (a
-     Prov-HIDS-style detector), used to demonstrate that graph *shape* alone is an
-     insufficient security signal.
-3. **Orchestration** (`flint/layer3_orchestration/`) — a config-driven sweep over
-   detector × compression × adversary, an adversary module (`adversary.py`) implementing
-   structural mimicry and trust-attribution attacks (label relabelling, forged
-   endorsements), and metrics aggregation.
+     integrity-reachability predicate). `f_flow_detailed` also returns the witness paths.
+   - `f_emb` — a deliberately integrity-agnostic structural baseline (WL 1-hop
+     neighbourhood hash), with continuous-score and benign-profile novelty variants.
+     It is the in-package, dependency-light stand-in for "detection by graph shape"
+     that keeps the evasion sweep self-contained; the manuscript's headline structural
+     baselines are learned models (GNN autoencoder, WL-feature detectors), which live
+     with the experiment scripts in the manuscript repository.
+3. **Evasion + orchestration** (`flint/layer3_orchestration/`) — a config-driven sweep
+   over detector × adversary with parquet output and metrics aggregation, and the
+   adversary module (`adversary.py`):
+   - `structural_mimicry` (plus a budget-parametric variant) — adds benign-looking
+     decoy substructure around untrusted entities; evades `f_emb`, never `f_flow`.
+   - `trust_attribution_relabel` — forges source-integrity labels (⊥→⊤), emptying the
+     untrusted-source set.
+   - `trust_attribution_endorser` — fabricates endorsements, rerouting ⊥→sink flows
+     through an inserted endorser.
 
-The central result the framework is built to demonstrate: structural mimicry cannot
-evade `f_flow` (the untrusted→sink path is constitutive of the attack), but it *can*
-evade a purely structural detector — so evading `f_flow` necessarily requires attacking
-trust attribution (the integrity labels or the endorsement set), not graph shape.
-Full proofs and the empirical evaluation are in the manuscript.
+The claim the framework exists to demonstrate (Theorems 1–2 of the manuscript): no
+structural transformation can silence `f_flow`, because the untrusted→sink flow is
+constitutive of the attack — so an evading adversary must forge a source-integrity
+label or fabricate an endorsement, and no third option exists. The security signal in
+agent provenance is trust attribution, not graph shape. In the sweep this appears as a
+clean fingerprint: mimicry leaves `f_flow` untouched but evades the structural
+baseline, while the relabel/endorser attacks evade `f_flow` and leave the structural
+baseline untouched. Full proofs and the empirical evaluation (six agent backends,
+learned baselines, adaptive mimicry, signed labels and capability-bound endorsements)
+are in the manuscript.
 
 ---
 
@@ -55,14 +71,17 @@ Full proofs and the empirical evaluation are in the manuscript.
 
 ```
 flint/
-  paths.py               # corpus_root()/output_root() — override via FLINT_CORPUS_ROOT /
-                         #   FLINT_OUTPUT_ROOT env vars
-  layer1_graph/          # load.py, flow.py, compress.py (κ_none/κ_naive/κ_flow),
-                         # structural_hash.py (κ_flow merge engine), visualize.py
-  layer2_detectors/      # f_flow.py (D-avoiding BFS/DFS) · f_emb.py (WL neighbourhood hash)
-  layer3_orchestration/  # runner.py (sweep) · budget_sweep.py · metrics.py · adversary.py
-configs/sweep.yaml        # example detector x adversary sweep config
-tests/                    # pytest suite — no corpus/model required
+  paths.py               # corpus_root()/output_root() + corpus file iterators —
+                         #   override via FLINT_CORPUS_ROOT / FLINT_OUTPUT_ROOT
+  layer1_graph/          # load.py (PROV-JSON → typed graph) · flow.py (flow relation,
+                         #   D-avoiding reachability, witnesses) · visualize.py
+                         #   (Graphviz, W3C PROV visual notation)
+  layer2_detectors/      # f_flow.py (D-avoiding reachability + witness API) ·
+                         #   f_emb.py (WL neighbourhood hash + score/novelty variants)
+  layer3_orchestration/  # runner.py (detector × adversary sweep, CLI) · adversary.py ·
+                         #   metrics.py
+configs/sweep.yaml        # example detector × adversary sweep config
+tests/                    # 68-test pytest suite — no corpus/model required
 ```
 
 ---
@@ -83,6 +102,9 @@ pip install -e ".[dev]"
 pytest tests/ -q
 ```
 
+Rendering PROV graphs with `visualize.py` additionally needs the Graphviz `dot`
+binary on PATH; detection and the sweep do not.
+
 ---
 
 ## Usage
@@ -94,7 +116,7 @@ capture time:
 - entity nodes: `adprov:integrity` ∈ `{trusted, untrusted}`
 - activity nodes: `adprov:role` ∈ `{neutral, sink, endorser}`
 
-Point FLINT at a corpus and run the detector × compression × adversary sweep:
+Point FLINT at a corpus and run the detector × adversary sweep:
 
 ```bash
 export FLINT_CORPUS_ROOT=/path/to/corpus-prov   # a Zenodo download or your own capture
@@ -105,8 +127,10 @@ python -m flint.layer3_orchestration.runner \
     --metrics-out results/metrics.parquet
 ```
 
-`results/sweep.parquet` then holds one row per (trace, detector, compression, adversary),
-with predicted/actual labels for computing TPR/FPR and conditional-detection rates.
+`results/sweep.parquet` then holds one row per (trace, detector, adversary), with
+ground truth, suite/attack metadata, and the detector verdict for computing TPR/FPR and
+conditional-detection rates. (Rows also carry a constant `compression = "kappa_none"`
+column, retained only so older downstream grouping keys keep working.)
 
 The [AgentDojo-PROV](https://doi.org/10.5281/zenodo.21052314) corpus (six agent backends,
 17,664 traces) is a ready-made corpus in this format if you don't have your own captures.
