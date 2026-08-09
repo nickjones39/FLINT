@@ -19,16 +19,39 @@ from pathlib import Path
 
 # Corpus source — the AgentDojo-PROV project's generated corpus. Override with
 # FLINT_CORPUS_ROOT to point at a Zenodo download (DOI 10.5281/zenodo.21052314) or a
-# local AgentDojo-PROV checkout; this relative default assumes a sibling checkout.
-DEFAULT_CORPUS_ROOT = "../AgentDojo-PROV/corpus/corpus-prov"
+# local AgentDojo-PROV checkout; these relative defaults assume a sibling checkout.
+#
+# The corpus lives in the *code* repo of the split pair, not the manuscript repo —
+# mirroring FLINT / flint-framework. That repo clones as ``agentdojo-prov`` from
+# GitHub but is checked out as ``AgentDojo-PROV-framework`` on the author's machines,
+# so both are tried. Probing the full ``corpus/corpus-prov`` path (not just the repo
+# dir) keeps this correct on case-insensitive filesystems, where ``agentdojo-prov``
+# also matches the corpus-less manuscript checkout ``AgentDojo-PROV``.
+_CORPUS_CANDIDATES = (
+    "../agentdojo-prov/corpus/corpus-prov",
+    "../AgentDojo-PROV-framework/corpus/corpus-prov",
+)
+DEFAULT_CORPUS_ROOT = _CORPUS_CANDIDATES[0]
 
 # FLINT's own outputs (parquets, figures), keyed by model dir name — stays in FLINT.
 DEFAULT_OUTPUT_ROOT = "results/corpus-prov"
 
 
 def corpus_root() -> Path:
-    """Root holding ``<model>/prov/...`` corpus files (read-only, from AgentDojo-PROV)."""
-    return Path(os.environ.get("FLINT_CORPUS_ROOT", DEFAULT_CORPUS_ROOT)).expanduser()
+    """Root holding ``<model>/prov/...`` corpus files (read-only, from AgentDojo-PROV).
+
+    ``FLINT_CORPUS_ROOT`` wins outright when set. Otherwise the sibling-checkout
+    candidates are probed in order and the first that exists is used, falling back
+    to the first candidate so the error message names a sensible path.
+    """
+    env = os.environ.get("FLINT_CORPUS_ROOT")
+    if env:
+        return Path(env).expanduser()
+    for candidate in _CORPUS_CANDIDATES:
+        path = Path(candidate).expanduser()
+        if path.is_dir():
+            return path
+    return Path(DEFAULT_CORPUS_ROOT).expanduser()
 
 
 def output_root() -> Path:
