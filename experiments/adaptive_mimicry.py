@@ -54,9 +54,12 @@ except ModuleNotFoundError:
     from synthetic_benign import generate_benign_graph
 
 SEED = 0
+# Motif budget per graph for the white-box adaptive attacker. Named so the
+# manuscript's protocol appendix can import and print it rather than restating it.
+MOTIF_BUDGET = 40
 
 
-def adaptive_mimicry(G, scorer, thr, rng, max_motifs: int = 40):
+def adaptive_mimicry(G, scorer, thr, rng, max_motifs: int = MOTIF_BUDGET):
     """Greedily append benign motifs (addition-only) to drive the AE's mean
     reconstruction error below ``thr``. Returns (H, nodes_added, final_score)."""
     H = G.copy()
@@ -75,7 +78,7 @@ def adaptive_mimicry(G, scorer, thr, rng, max_motifs: int = 40):
     return H, added, cur
 
 
-def evaluate(corpus: Path, max_motifs: int = 40, max_graphs: int = 0) -> dict:
+def evaluate(corpus: Path, max_motifs: int = MOTIF_BUDGET, max_graphs: int = 0) -> dict:
     random.seed(SEED)
     np.random.seed(SEED)
     traces = load_traces_from_dir(corpus)
