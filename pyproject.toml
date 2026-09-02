@@ -18,6 +18,9 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ruff>=0.6"]
+# The learned structural baselines in experiments/ (GNN-AE, GCN-CLF, WL-IF, WL-LR)
+# and the white-box adaptive mimicry. Not needed to run the f_flow detector itself.
+experiments = ["torch>=2.2", "scikit-learn>=1.4"]
 
 # Note: rendering PROV graphs also needs the Graphviz `dot` system binary
 # (e.g. `brew install graphviz` / `apt-get install graphviz`), which pip cannot provide.
@@ -28,7 +31,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["flint*"]
+include = ["flint*", "experiments*"]
 
 [tool.ruff]
 line-length = 110

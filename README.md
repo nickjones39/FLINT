@@ -78,11 +78,61 @@ flint/
                          #   (Graphviz, W3C PROV visual notation)
   layer2_detectors/      # f_flow.py (D-avoiding reachability + witness API) ·
                          #   f_emb.py (WL neighbourhood hash + score/novelty variants)
-  layer3_orchestration/  # runner.py (detector × adversary sweep, CLI) · adversary.py ·
-                         #   metrics.py
+layer3_orchestration/  # runner.py (detector × adversary sweep, CLI) · adversary.py ·
+                       #   metrics.py
+experiments/           # the learned structural baselines and the white-box adaptive
+                       #   mimicry — see "Learned baselines" below
 configs/sweep.yaml        # example detector × adversary sweep config
 tests/                    # 68-test pytest suite — no corpus/model required
 ```
+
+---
+
+## Learned baselines
+
+`experiments/` holds the scripts behind the paper's learned structural detectors,
+released so the reported protocol can be checked and re-run rather than taken on
+trust.
+
+| Script | What it runs |
+|---|---|
+| `learned_baseline.py` | GNN-AE and WL-IF (benign-trained novelty), GCN-CLF and WL-LR (supervised), plus the synthetic-benign retraining sweep |
+| `label_aware_baseline.py` | the integrity-agnostic vs label-aware GCN transfer study |
+| `adaptive_mimicry.py` | the white-box adaptive attacker against GNN-AE |
+| `synthetic_benign.py` | the synthetic benign graphs used for the augmentation sweep |
+
+These need PyTorch and scikit-learn, which the detector itself does not:
+
+```bash
+pip install -e ".[experiments]"
+python experiments/learned_baseline.py --corpus <root>/<model>/prov
+```
+
+Each script writes the result JSON the paper's numbers are generated from.
+
+**The protocol is in the code, not only in the paper.** Split fraction, epoch
+counts, seed counts, layer widths, learning rate and decision threshold are
+module-level constants in `learned_baseline.py` and `label_aware_baseline.py`
+(`SPLIT_FRACTION`, `SUP_EPOCHS`, `SUP_SEEDS`, `AE_EPOCHS`, `NOVELTY_FOLDS`,
+`LA_EPOCHS`, `LA_SEEDS`, …). The paper's protocol appendix imports and prints
+those same names, so a change here changes the paper rather than silently
+contradicting it. Two protocol notes worth knowing before comparing numbers:
+
+- The supervised detectors take a `SPLIT_FRACTION` split of each class
+  separately and then **balance the injection training pool down to the benign
+  training size**, so most injection traces are never trained on; evaluation and
+  the adversary transforms use the held-out injection graphs only.
+- The novelty detectors never see an injection trace in training. They are
+  fitted under `NOVELTY_FOLDS`-fold cross-validation over the benign class, with
+  the threshold set to the maximum anomaly score on the *real* training benign
+  (so training-benign false positives are zero by construction). Synthetic
+  benign graphs enter training only and are never evaluated on.
+- `learned_baseline.py` and `label_aware_baseline.py` are **separate runs with
+  different epoch and seed counts**, so their numbers are not commensurable with
+  each other. Compare within a script, not across the two.
+
+Nothing is early-stopped and nothing is tuned: there is no validation set and no
+hyperparameter search, so the constants are the defaults the first run used.
 
 ---
 
