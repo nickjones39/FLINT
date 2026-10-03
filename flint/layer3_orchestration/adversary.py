@@ -18,7 +18,15 @@ Adversary B variants — synthetic graph mutations applied to an existing flow g
                                  sweep; on that corpus every witness is direct.
 
   trust_attribution_relabel   — relabels every ⊥ entity as ⊤.  Empties U_src
-                                 → evades f_flow (P3/H5).
+                                 → evades f_flow (P3/H5).  Attribute-level: the
+                                 graph keeps the ⊥ entity's taint edges, so the
+                                 result is a graph no context-taint recorder emits
+                                 (a ⊤ entity used by a sink).
+
+  trust_attribution_relabel_rederived — the derivation-consistent relabel: ⊥→⊤
+                                 AND the relabelled entities' taint edges removed,
+                                 which is the graph a recorder that relabels before
+                                 deriving the graph would emit.  Evades f_flow too.
 """
 from __future__ import annotations
 
@@ -26,7 +34,7 @@ import networkx as nx
 
 from flint.layer1_graph.flow import get_sinks, get_untrusted_sources
 from flint.layer2_detectors.f_emb import MAX_CANONICAL_OUT
-from flint.spec import ENDORSER, INTEGRITY_KEY, NEUTRAL, ROLE_KEY, TRUSTED, UNTRUSTED
+from flint.spec import ENDORSER, INTEGRITY_KEY, NEUTRAL, ROLE_KEY, SINK, TRUSTED, UNTRUSTED
 
 
 def _fresh_id(H: nx.DiGraph, base: str) -> str:
@@ -170,4 +178,44 @@ def trust_attribution_relabel(G: nx.DiGraph) -> nx.DiGraph:
     for n in H.nodes():
         if H.nodes[n].get(INTEGRITY_KEY) == UNTRUSTED:
             H.nodes[n][INTEGRITY_KEY] = TRUSTED
+    return H
+
+
+def trust_attribution_relabel_rederived(G: nx.DiGraph) -> nx.DiGraph:
+    """Relabel every ⊥ entity as ⊤ and drop the edges its ⊥ label put there.
+
+    ``trust_attribution_relabel`` rewrites the integrity attribute only, so the
+    relabelled entity keeps the ``used`` edges that context taint gave it into
+    every later sink: a ⊤ entity used by a sink, which a context-taint recorder
+    (AgentDojo-PROV's builder) never emits. A recorder that relabels the tool
+    output *before* deriving the graph emits no such edge. This is that graph:
+
+    * every ⊥ entity becomes ⊤;
+    * its ``used`` edges into sink activities are removed (context taint links a
+      sink only to untrusted outputs);
+    * its ``wasDerivedFrom`` out-edges are removed (the builder derives a sink's
+      output from the untrusted entities that sink used, and from nothing else);
+    * every ⊥ agent (an external-source agent) is removed: the builder creates one
+      only for an untrusted output, and none remains. The loader keeps no
+      ``wasAttributedTo`` edge, so such an agent is an isolated node here.
+
+    Everything else (the entity node, its ``wasGeneratedBy`` edge, every edge of
+    every other node) is unchanged. Empties U_src, so f_flow(H) = False; unlike
+    the attribute-level relabel it also changes the graph's shape, so a detector
+    that reads only structure can move.
+    """
+    H = G.copy()
+    relabelled = [n for n, d in H.nodes(data=True)
+                  if d.get("node_type") == "entity" and d.get(INTEGRITY_KEY) == UNTRUSTED]
+    for u in relabelled:
+        H.nodes[u][INTEGRITY_KEY] = TRUSTED
+        for v in list(H.successors(u)):
+            rel = H.edges[u, v].get("relation")
+            if rel == "used" and H.nodes[v].get(ROLE_KEY) == SINK:
+                H.remove_edge(u, v)
+            elif rel == "wasDerivedFrom":
+                H.remove_edge(u, v)
+    for a, d in list(H.nodes(data=True)):
+        if d.get("node_type") == "agent" and d.get(INTEGRITY_KEY) == UNTRUSTED:
+            H.remove_node(a)
     return H

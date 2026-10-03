@@ -31,6 +31,7 @@ from flint.layer3_orchestration.adversary import (
     trust_attribution_endorser,
     trust_attribution_endorser_all,
     trust_attribution_relabel,
+    trust_attribution_relabel_rederived,
 )
 from flint.layer3_orchestration.metrics import compute_metrics, save_parquet
 from flint.paths import iter_files
@@ -163,6 +164,7 @@ _ADVERSARY_FNS: dict[str, Callable[[nx.DiGraph], nx.DiGraph] | None] = {
     "trust_attribution_endorser": trust_attribution_endorser,
     "trust_attribution_endorser_all": trust_attribution_endorser_all,
     "trust_attribution_relabel": trust_attribution_relabel,
+    "trust_attribution_relabel_rederived": trust_attribution_relabel_rederived,
 }
 
 

@@ -29,6 +29,7 @@ from flint.layer3_orchestration.adversary import (
     structural_mimicry_budget,
     trust_attribution_endorser,
     trust_attribution_relabel,
+    trust_attribution_relabel_rederived,
 )
 
 # ---------------------------------------------------------------------------
@@ -353,3 +354,106 @@ class TestAdversaryScope:
         G.add_edge("r", "t", relation="wasGeneratedBy")
         G.add_edge("t", "s", relation="used")
         assert f_emb(G) and f_emb(structural_mimicry(G))
+
+
+# ---------------------------------------------------------------------------
+# The derivation-consistent relabel (0.3.3)
+# ---------------------------------------------------------------------------
+
+def _rederive_doc() -> dict:
+    """read (⊥) → send (sink) → its output (⊥) used by a later sink; a derived edge,
+    a ⊥ source agent, and a trusted entity a neutral activity uses."""
+    return {
+        "entity": {
+            "adprov:e_user_query": {"prov:label": "user_query", "adprov:integrity": "trusted"},
+            "adprov:e_read": {"prov:label": "get_received_emails_output", "adprov:integrity": "untrusted"},
+            "adprov:e_send": {"prov:label": "send_email_output", "adprov:integrity": "untrusted"},
+            "adprov:e_del": {"prov:label": "delete_email_output", "adprov:integrity": "trusted"},
+        },
+        "activity": {
+            "adprov:a_read": {"prov:label": "get_received_emails", "adprov:role": "neutral"},
+            "adprov:a_send": {"prov:label": "send_email", "adprov:role": "sink"},
+            "adprov:a_del": {"prov:label": "delete_email", "adprov:role": "sink"},
+        },
+        "agent": {
+            "adprov:ag_llm": {"prov:label": "llm_agent", "adprov:integrity": "trusted"},
+            "adprov:ag_src_email": {"prov:label": "email_source", "adprov:integrity": "untrusted"},
+        },
+        "wasGeneratedBy": {
+            "adprov:g1": {"prov:entity": "adprov:e_read", "prov:activity": "adprov:a_read"},
+            "adprov:g2": {"prov:entity": "adprov:e_send", "prov:activity": "adprov:a_send"},
+            "adprov:g3": {"prov:entity": "adprov:e_del", "prov:activity": "adprov:a_del"},
+        },
+        "used": {
+            "adprov:u0": {"prov:activity": "adprov:a_read", "prov:entity": "adprov:e_user_query"},
+            "adprov:u1": {"prov:activity": "adprov:a_send", "prov:entity": "adprov:e_read"},
+            "adprov:u2": {"prov:activity": "adprov:a_del", "prov:entity": "adprov:e_read"},
+            "adprov:u3": {"prov:activity": "adprov:a_del", "prov:entity": "adprov:e_send"},
+        },
+        "wasDerivedFrom": {
+            "adprov:d1": {"prov:generatedEntity": "adprov:e_send", "prov:usedEntity": "adprov:e_read"},
+        },
+        "wasInformedBy": {
+            "adprov:i1": {"prov:informed": "adprov:a_send", "prov:informant": "adprov:a_read"},
+            "adprov:i2": {"prov:informed": "adprov:a_del", "prov:informant": "adprov:a_send"},
+        },
+    }
+
+
+class TestRelabelRederived:
+    def test_evades_f_flow(self):
+        G = load_prov_graph(_rederive_doc())
+        assert f_flow(G) is True
+        assert f_flow(trust_attribution_relabel_rederived(G)) is False
+
+    def test_relabels_every_untrusted_entity(self):
+        H = trust_attribution_relabel_rederived(load_prov_graph(_rederive_doc()))
+        assert not get_untrusted_sources(H)
+
+    def test_removes_the_taint_edges_the_label_put_there(self):
+        """No ⊤ entity is used by a sink, as a context-taint recorder would emit."""
+        H = trust_attribution_relabel_rederived(load_prov_graph(_rederive_doc()))
+        for u, v, d in H.edges(data=True):
+            if d.get("relation") == "used" and H.nodes[v].get("adprov:role") == "sink":
+                assert u not in ("adprov:e_read", "adprov:e_send")
+        assert not H.has_edge("adprov:e_read", "adprov:e_send")      # wasDerivedFrom gone
+        assert "adprov:ag_src_email" not in H                          # ⊥ source agent gone
+
+    def test_keeps_everything_else(self):
+        G = load_prov_graph(_rederive_doc())
+        H = trust_attribution_relabel_rederived(G)
+        assert set(G.nodes) - set(H.nodes) == {"adprov:ag_src_email"}
+        for e in [("adprov:e_user_query", "adprov:a_read"), ("adprov:a_read", "adprov:e_read"),
+                  ("adprov:a_send", "adprov:e_send"), ("adprov:a_read", "adprov:a_send"),
+                  ("adprov:a_send", "adprov:a_del")]:
+            assert H.has_edge(*e)
+        removed = {(u, v) for u, v in G.edges} - {(u, v) for u, v in H.edges}
+        assert removed == {("adprov:e_read", "adprov:a_send"), ("adprov:e_read", "adprov:a_del"),
+                           ("adprov:e_send", "adprov:a_del"), ("adprov:e_read", "adprov:e_send")}
+
+    def test_differs_from_the_attribute_level_relabel_only_in_edges(self):
+        G = load_prov_graph(_rederive_doc())
+        A, B = trust_attribution_relabel(G), trust_attribution_relabel_rederived(G)
+        for n in B.nodes:
+            assert B.nodes[n].get("adprov:integrity") == A.nodes[n].get("adprov:integrity") or \
+                G.nodes[n].get("node_type") == "agent"
+        assert B.number_of_edges() < A.number_of_edges() == G.number_of_edges()
+
+    def test_input_graph_is_not_mutated(self):
+        G = load_prov_graph(_rederive_doc())
+        before = (set(G.nodes), set(G.edges), dict(G.nodes["adprov:e_read"]))
+        trust_attribution_relabel_rederived(G)
+        assert before == (set(G.nodes), set(G.edges), dict(G.nodes["adprov:e_read"]))
+
+    def test_benign_graph_without_untrusted_entities_is_unchanged(self):
+        doc = _rederive_doc()
+        for e in doc["entity"].values():
+            e["adprov:integrity"] = "trusted"
+        doc["agent"].pop("adprov:ag_src_email")
+        G = load_prov_graph(doc)
+        H = trust_attribution_relabel_rederived(G)
+        assert set(H.edges) == set(G.edges) and set(H.nodes) == set(G.nodes)
+
+    def test_registered_with_the_sweep(self):
+        from flint.layer3_orchestration.runner import _ADVERSARY_FNS
+        assert _ADVERSARY_FNS["trust_attribution_relabel_rederived"] is trust_attribution_relabel_rederived

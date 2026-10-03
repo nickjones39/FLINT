@@ -16,7 +16,7 @@ extra, the PROV renderer the ``[viz]`` extra, and the Ed25519 keys in
 """
 from __future__ import annotations
 
-__version__ = "0.3.2"
+__version__ = "0.3.3"
 
 from flint.attribution import (
     AttributionResult,
@@ -39,6 +39,7 @@ from flint.layer3_orchestration.adversary import (
     trust_attribution_endorser,
     trust_attribution_endorser_all,
     trust_attribution_relabel,
+    trust_attribution_relabel_rederived,
 )
 from flint.spec import (
     ADPROV_NS,
@@ -73,6 +74,7 @@ __all__ = [  # noqa: RUF022 — grouped by role, not sorted
     "trust_attribution_endorser",
     "trust_attribution_endorser_all",
     "trust_attribution_relabel",
+    "trust_attribution_relabel_rederived",
     # verifiable trust attribution (manuscript §V; flint.attribution)
     "verify_attribution",
     "AttributionResult",

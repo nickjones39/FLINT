@@ -53,7 +53,14 @@ framework's purpose is to be a reference tool for other experiments or research.
      rewires *untrusted* entities, so a trusted entity with the canonical shape still
      matches.
    - `trust_attribution_relabel` forges source-integrity labels (⊥→⊤), emptying the
-     untrusted-source set. It silences `f_flow` on any graph.
+     untrusted-source set. It silences `f_flow` on any graph. It rewrites the label
+     attribute only, so the graph keeps the relabelled entity's taint edges.
+   - `trust_attribution_relabel_rederived` is the derivation-consistent relabel: the
+     same label rewrite, plus the relabelled entities' `used` edges into sinks (and
+     their `wasDerivedFrom` out-edges, and any ⊥ source agent) removed, which is the
+     graph a recorder that relabels before deriving it would write. It silences
+     `f_flow` the same way; unlike the attribute-level relabel it changes the shape
+     a structural detector reads.
    - `trust_attribution_endorser` fabricates endorsements by rerouting each *direct*
      ⊥→sink `used` edge through an inserted endorser. That silences `f_flow` on the
      corpus, where every witness is direct, but an indirect flow
@@ -197,7 +204,7 @@ uv add --editable ../flint-framework                                     # a loc
 
 `pip install "flint-prov @ git+https://github.com/nickjones39/FLINT"` works the same
 way if you do not use uv. Pin a release tag in production, e.g.
-`flint-prov @ git+https://github.com/nickjones39/FLINT@v0.3.2`.
+`flint-prov @ git+https://github.com/nickjones39/FLINT@v0.3.3`.
 
 ---
 

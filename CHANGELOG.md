@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.3 — 2026-10-04
+
+### Added
+- **`trust_attribution_relabel_rederived`, the derivation-consistent relabel.**
+  `trust_attribution_relabel` rewrites the integrity attribute and keeps the
+  relabelled entity's context-taint `used` edges into later sinks, a graph no
+  context-taint recorder emits (a ⊤ entity used by a sink). The new adversary also
+  removes those edges (and the entity's `wasDerivedFrom` out-edges and any ⊥
+  external-source agent), which is the graph a recorder that relabels a tool's
+  output before deriving the graph would write. It evades f_flow exactly as the
+  attribute-level relabel does; unlike it, it changes the graph's shape, so a
+  detector that reads only structure can move. Registered with the sweep.
+
 ## 0.3.2 — 2026-10-04
 
 Two corrections to what the loader reports about a trace. Neither moves a released
