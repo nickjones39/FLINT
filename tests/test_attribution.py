@@ -522,3 +522,97 @@ def test_theorem_3_with_omission(G, i, k):
     H = attack(G)
     attacked = _verify(H, trace_id=TRACE, relations=token)
     assert attacked.alert >= honest.alert
+
+
+# ---------------------------------------------------------------------------
+# v0.4: record commitment (roles, actions, labels, nodes) and argument scope
+# ---------------------------------------------------------------------------
+
+from flint import argument_scope, commit_record  # noqa: E402
+
+
+class TestRecordCommitment:
+    def _doc(self) -> dict:
+        doc = _signed_doc()
+        doc["activity"]["adprov:a_send"]["adprov:args"] = '{"recipients": ["bob@example.com"], "body": "hi"}'
+        return doc
+
+    def test_honest_record_is_complete(self):
+        G = load_prov_graph(self._doc(), strict=True)
+        r = _verify(G, relations=commit_record(REC, G, TRACE), trace_id=TRACE)
+        assert r.record_complete is True and r.alert is True   # the real flow still fires
+
+    def test_sink_demotion_is_caught(self):
+        """Demoting the sink to neutral silences f_flow; the record commitment catches it."""
+        G = load_prov_graph(self._doc(), strict=True)
+        token = commit_record(REC, G, TRACE)
+        H = G.copy()
+        H.nodes["adprov:a_send"]["adprov:role"] = "neutral"
+        assert not f_flow(H)
+        assert commit_relations(REC, G, TRACE) and _verify(        # edges alone: blind to it
+            H, relations=commit_relations(REC, G, TRACE)).record_complete is True
+        r = _verify(H, relations=token, trace_id=TRACE)
+        assert r.record_complete is False and "committed record" in r.record_issue
+        assert r.alert is True
+
+    @pytest.mark.parametrize("mutate", [
+        lambda H: H.add_node("adprov:extra", node_type="entity", **{"adprov:integrity": "trusted"}),
+        lambda H: H.remove_node("adprov:e_query"),
+        lambda H: H.nodes["adprov:e_mail"].update({"adprov:integrity": "trusted"}),
+        lambda H: H.nodes["adprov:a_send"].update({ACTION_KEY: "noop"}),
+    ])
+    def test_any_node_change_is_caught(self, mutate):
+        G = load_prov_graph(self._doc(), strict=True)
+        token = commit_record(REC, G, TRACE)
+        H = G.copy()
+        mutate(H)
+        assert _verify(H, relations=token).record_complete is False
+
+    def test_relations_tokens_unchanged_from_v030(self):
+        G = load_prov_graph(self._doc(), strict=True)
+        token = commit_relations(REC, G, TRACE)
+        assert token.startswith("flintrel1.") and commit_record(REC, G, TRACE).startswith("flintrec1.")
+
+
+ARGS = {"recipients": ["bob@example.com"], "amount": 100, "body": "free text"}
+
+
+class TestArgumentScope:
+
+    def test_helper(self):
+        assert argument_scope(ARGS, ["recipients", "amount", "missing"]) == {
+            "arg:recipients": ["bob@example.com"], "arg:amount": "100"}
+
+    def _endorsed(self, recorded_args: dict, scope_args: dict) -> dict:
+        doc = _signed_doc(endorse=True)
+        a = doc["activity"]["adprov:a_approve"]
+        a["adprov:args"] = json.dumps(recorded_args)
+        a[CAPABILITY_KEY] = issue_capability(
+            CAP, "approve_send", {"trace": TRACE, **argument_scope(scope_args, ["recipients", "amount"])})
+        return doc
+
+    def test_matching_arguments_keep_the_endorser(self):
+        r = _verify(load_prov_graph(self._endorsed(ARGS, ARGS)), trace_id=TRACE)
+        assert not r.rejected_endorsers and not f_flow(r.graph)
+
+    def test_a_different_recipient_is_not_covered(self):
+        """The approval was for bob; an injection redirecting to eve gets no endorsement."""
+        other = {**ARGS, "recipients": ["eve@attacker.example"]}
+        r = _verify(load_prov_graph(self._endorsed(other, ARGS)), trace_id=TRACE)
+        assert "does not cover argument 'recipients'" in r.rejected_endorsers["adprov:a_approve"]
+        assert f_flow(r.graph)
+
+    def test_free_text_outside_the_scope_may_differ(self):
+        other = {**ARGS, "body": "attacker-controlled text"}
+        assert not _verify(load_prov_graph(self._endorsed(other, ARGS))).rejected_endorsers
+
+    @pytest.mark.parametrize("recorded", [None, "not json", "[1, 2]"])
+    def test_unrecorded_arguments_are_rejected(self, recorded):
+        doc = self._endorsed(ARGS, ARGS)
+        a = doc["activity"]["adprov:a_approve"]
+        if recorded is None:
+            del a["adprov:args"]
+        else:
+            a["adprov:args"] = recorded
+        r = _verify(load_prov_graph(doc))
+        assert "does not record" in r.rejected_endorsers["adprov:a_approve"]

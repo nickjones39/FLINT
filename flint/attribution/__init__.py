@@ -87,9 +87,14 @@ CAPABILITY_KEY = "adprov:capability"
 SOURCE_TAG = b"FLINT/source-label/v1\x00"
 CAPABILITY_TAG = b"FLINT/capability/v1\x00"
 RELATIONS_TAG = b"FLINT/relations/v1\x00"
+RECORD_TAG = b"FLINT/record/v1\x00"
+NODE_TAG = b"FLINT/node/v1\x00"
 EDGE_TAG = b"FLINT/edge/v1\x00"
 TOKEN_PREFIX = "flintcap1"
 RELATIONS_PREFIX = "flintrel1"
+RECORD_PREFIX = "flintrec1"
+ARGS_KEY = "adprov:args"
+ARG_SCOPE_PREFIX = "arg:"
 
 ScopeValue = str | Sequence[str]
 
@@ -208,6 +213,38 @@ def relations_message(trace_id: str, root: bytes, count: int) -> bytes:
     return _frame(RELATIONS_TAG, trace_id.encode(), root, str(count).encode())
 
 
+def _attr_text(value: Any) -> bytes:
+    """A node attribute as committed bytes: strings as-is, absent as empty."""
+    v = literal_value(value)
+    if v is None:
+        return b""
+    if isinstance(v, str):
+        return v.encode()
+    return json.dumps(v, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+
+
+def record_leaves(G: nx.DiGraph) -> list[bytes]:
+    """The whole record's leaves: every flow edge, and every node with the labels
+    the detector reads (an entity's integrity; an activity's role and action)."""
+    leaves = set(relation_leaves(G))
+    for n, d in G.nodes(data=True):
+        node_type = d.get("node_type")
+        fields = [_attr_text(node_type), str(n).encode()]
+        if node_type == "entity":
+            fields.append(_attr_text(d.get(INTEGRITY_KEY)))
+        elif node_type == "activity":
+            fields += [_attr_text(d.get(ROLE_KEY)), _attr_text(d.get(ACTION_KEY))]
+        leaves.add(_frame(NODE_TAG, *fields))
+    return sorted(leaves)
+
+
+# commitment kind -> (domain tag, leaf function, name used in messages)
+_COMMITMENTS: dict[str, tuple[bytes, Callable[[nx.DiGraph], list[bytes]], str]] = {
+    RELATIONS_PREFIX: (RELATIONS_TAG, relation_leaves, "relation"),
+    RECORD_PREFIX: (RECORD_TAG, record_leaves, "record"),
+}
+
+
 def _b64(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
 
@@ -263,6 +300,16 @@ def issue_capability(
     return f"{TOKEN_PREFIX}.{_b64(body.encode())}.{_b64(signer.sign(message))}"
 
 
+def _commit(prefix: str, signer: Signer, G: nx.DiGraph, trace_id: str) -> str:
+    tag, leaves_fn, _ = _COMMITMENTS[prefix]
+    leaves = leaves_fn(G)
+    root, count = _merkle_root(leaves), len(leaves)
+    payload = {"kid": signer.kid, "trace": trace_id, "root": _b64(root), "count": count}
+    body = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    sig = signer.sign(_frame(tag, trace_id.encode(), root, str(count).encode()))
+    return f"{prefix}.{_b64(body.encode())}.{_b64(sig)}"
+
+
 def commit_relations(signer: Signer, G: nx.DiGraph, trace_id: str) -> str:
     """The recorder's signed commitment to every flow edge of ``G`` (use sk_rec).
 
@@ -270,37 +317,83 @@ def commit_relations(signer: Signer, G: nx.DiGraph, trace_id: str) -> str:
     recorder writes. Store the returned token with the trace and pass it to
     ``verify_attribution(..., relations=token, trace_id=trace_id)``.
     """
-    root, count = relations_root(G), len(relation_leaves(G))
-    payload = {"kid": signer.kid, "trace": trace_id, "root": _b64(root), "count": count}
-    body = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-    sig = signer.sign(relations_message(trace_id, root, count))
-    return f"{RELATIONS_PREFIX}.{_b64(body.encode())}.{_b64(sig)}"
+    return _commit(RELATIONS_PREFIX, signer, G, trace_id)
+
+
+def commit_record(signer: Signer, G: nx.DiGraph, trace_id: str) -> str:
+    """Like ``commit_relations``, but over the whole record (use sk_rec).
+
+    Besides every flow edge it covers every node, each entity's integrity label,
+    and each activity's role and action. A sink demoted to neutral, a node added
+    or removed, or a label changed after recording then fails the check, as an
+    omitted edge does. Pass the token as ``verify_attribution(..., relations=token)``.
+    """
+    return _commit(RECORD_PREFIX, signer, G, trace_id)
 
 
 def _check_relations(
     G: nx.DiGraph, token: object, labels: Verifier, trace_id: str | None
 ) -> str | None:
-    """None if ``token`` is a valid commitment to exactly G's flow edges."""
+    """None if ``token`` is a valid commitment to exactly what G records."""
     if not isinstance(token, str):
         return "no relation commitment"
     parts = token.split(".")
-    if len(parts) != 3 or parts[0] != RELATIONS_PREFIX:
+    if len(parts) != 3 or parts[0] not in _COMMITMENTS:
         return "malformed relation commitment"
+    tag, leaves_fn, kind = _COMMITMENTS[parts[0]]
     try:
         payload = json.loads(_unb64(parts[1]).decode(), object_pairs_hook=_no_duplicates)
         signature, root = _unb64(parts[2]), _unb64(payload["root"])
         kid, trace, count = payload["kid"], payload["trace"], payload["count"]
     except (ValueError, UnicodeDecodeError, KeyError, TypeError, AttributeError):
-        return "malformed relation commitment"
+        return f"malformed {kind} commitment"
     if not (isinstance(kid, str) and isinstance(trace, str)
             and isinstance(count, int) and not isinstance(count, bool)):
-        return "malformed relation commitment"
-    if not labels.verify(kid, relations_message(trace, root, count), signature):
-        return "relation commitment does not verify"
+        return f"malformed {kind} commitment"
+    if not labels.verify(kid, _frame(tag, trace.encode(), root, str(count).encode()), signature):
+        return f"{kind} commitment does not verify"
     if trace_id is not None and trace != trace_id:
-        return "relation commitment is for another trace"
-    if relations_root(G) != root or len(relation_leaves(G)) != count:
-        return "recorded relations differ from the committed set"
+        return f"{kind} commitment is for another trace"
+    leaves = leaves_fn(G)
+    if _merkle_root(leaves) != root or len(leaves) != count:
+        return ("recorded relations differ from the committed set" if kind == "relation"
+                else "recorded graph differs from the committed record")
+    return None
+
+
+# --- capability scope over arguments -----------------------------------------
+
+def _scope_text(value: Any) -> ScopeValue:
+    """An argument value as a scope value: strings as-is, lists element-wise,
+    anything else as canonical JSON."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (list, tuple)):
+        return [x if isinstance(x, str) else json.dumps(x, sort_keys=True) for x in value]
+    return json.dumps(value, sort_keys=True)
+
+
+def argument_scope(args: Mapping[str, Any], names: Collection[str] | None = None) -> dict[str, ScopeValue]:
+    """Scope entries that bind a capability to argument values (``arg:<name>``).
+
+    ``issue_capability(signer, action, {"trace": t, **argument_scope(args, ["recipients"])})``
+    issues a capability that only an activity recording those exact arguments in
+    ``adprov:args`` can use: a capability "bound to the recipient".
+    """
+    keys = list(args) if names is None else [k for k in names if k in args]
+    return {f"{ARG_SCOPE_PREFIX}{k}": _scope_text(args[k]) for k in keys}
+
+
+def _activity_args(d: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    raw = literal_value(d.get(ARGS_KEY))
+    if isinstance(raw, Mapping):
+        return raw
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw, object_pairs_hook=_no_duplicates)
+        except ValueError:
+            return None
+        return parsed if isinstance(parsed, Mapping) else None
     return None
 
 
@@ -429,6 +522,15 @@ def _check_capability(
         return "capability expired"
     if trace_id is not None and cap.scope.get("trace") != trace_id:
         return "capability scope is for another trace"
+    bound = {k[len(ARG_SCOPE_PREFIX):]: v for k, v in cap.scope.items()
+             if k.startswith(ARG_SCOPE_PREFIX)}
+    if bound:
+        args = _activity_args(d)
+        if args is None:
+            return "capability binds arguments the activity does not record"
+        for name, want in bound.items():
+            if name not in args or _scope_text(args[name]) != want:
+                return f"capability does not cover argument {name!r}"
     if scope_check is not None and not scope_check(n, d, cap):
         return "capability scope does not cover this activity"
     return None
@@ -545,7 +647,9 @@ __all__ = [
     "Capability",
     "Signer",
     "Verifier",
+    "argument_scope",
     "capability_message",
+    "commit_record",
     "commit_relations",
     "decode_capability",
     "issue_capability",

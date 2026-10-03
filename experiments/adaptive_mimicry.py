@@ -59,8 +59,34 @@ SEED = 0
 MOTIF_BUDGET = 40
 
 
+def _attach(H, motif, rng):
+    """Union ``motif`` into ``H`` and attach it to an existing node, as T_struct
+    requires ("it attaches substructures to existing nodes").
+
+    The motif is labelled as an honest recorder would label benign material
+    (entities trusted, activities neutral) and hangs off one existing node: an
+    activity informs the motif's first activity, or, if the graph has none, an
+    entity is used by it. The motif holds no sink, so no new untrusted-to-sink
+    path can appear and f_flow is untouched (checked below).
+    """
+    H2 = nx.union(H, motif)
+    for n, d in motif.nodes(data=True):
+        if d.get("node_type") == "entity":
+            H2.nodes[n]["adprov:integrity"] = "trusted"
+        elif d.get("node_type") == "activity":
+            H2.nodes[n]["adprov:role"] = "neutral"
+    motif_acts = [n for n, d in motif.nodes(data=True) if d.get("node_type") == "activity"]
+    acts = [n for n, d in H.nodes(data=True) if d.get("node_type") == "activity"]
+    ents = [n for n, d in H.nodes(data=True) if d.get("node_type") == "entity"]
+    if motif_acts and acts:
+        H2.add_edge(rng.choice(acts), motif_acts[0], relation="wasInformedBy")
+    elif motif_acts and ents:
+        H2.add_edge(rng.choice(ents), motif_acts[0], relation="used")
+    return H2
+
+
 def adaptive_mimicry(G, scorer, thr, rng, max_motifs: int = MOTIF_BUDGET):
-    """Greedily append benign motifs (addition-only) to drive the AE's mean
+    """Greedily attach benign motifs (addition-only) to drive the AE's mean
     reconstruction error below ``thr``. Returns (H, nodes_added, final_score)."""
     H = G.copy()
     cur = float(scorer([H])[0])
@@ -70,7 +96,7 @@ def adaptive_mimicry(G, scorer, thr, rng, max_motifs: int = MOTIF_BUDGET):
             break
         motif = generate_benign_graph(rng)
         motif = nx.relabel_nodes(motif, {n: f"__mim{k}__{n}" for n in motif.nodes()})
-        H2 = nx.union(H, motif)
+        H2 = _attach(H, motif, rng)
         s = float(scorer([H2])[0])
         if s < cur:  # keep only additions that lower the aggregate anomaly
             H, cur = H2, s

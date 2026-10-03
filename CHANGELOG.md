@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased (0.4.0)
+
+### Added
+- `commit_record(signer, G, trace_id)` commits to the whole record: every flow edge,
+  every node, each entity's integrity label, and each activity's role and action.
+  `verify_attribution(..., relations=token)` accepts it as it accepts a
+  `commit_relations` token, whose format is unchanged. A sink demoted to neutral
+  after recording silences f_flow; it fails the record check, and the edge-only
+  commitment cannot see it.
+- Capabilities can bind argument values. `argument_scope(args, names)` builds
+  `arg:<name>` scope entries; an endorser keeps its capability only if its
+  recorded `adprov:args` hold exactly those values. This is a capability "bound
+  to the recipient", with no `scope_check` callback needed.
+
+### Changed
+- `experiments/adaptive_mimicry.py` attaches each motif to an existing node, by
+  `wasInformedBy` from an activity or `used` from an entity, and labels it as an
+  honest recorder would. Before, motifs were added as disconnected components,
+  which the manuscript's structural attacker ("attaches substructures to existing
+  nodes") does not cover.
+
 ## 0.3.0 — 2026-10-03
 
 Verifiable trust attribution: the manuscript's §V, Definitions 5 and 6. Nothing

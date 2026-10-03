@@ -16,12 +16,14 @@ extra, the PROV renderer the ``[viz]`` extra, and the Ed25519 keys in
 """
 from __future__ import annotations
 
-__version__ = "0.3.0"
+__version__ = "0.4.0.dev0"
 
 from flint.attribution import (
     AttributionResult,
     Signer,
     Verifier,
+    argument_scope,
+    commit_record,
     commit_relations,
     issue_capability,
     sign_source_label,
@@ -77,6 +79,8 @@ __all__ = [  # noqa: RUF022 — grouped by role, not sorted
     "sign_source_label",
     "issue_capability",
     "commit_relations",
+    "commit_record",
+    "argument_scope",
     "Signer",
     "Verifier",
     # input vocabulary (docs/input-format.md)

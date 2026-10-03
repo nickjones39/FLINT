@@ -158,6 +158,16 @@ retyped after recording, `result.record_complete` is False and `result.alert` is
 True. A relation the recorder never observed cannot be recovered this way: the
 record must still be flow-complete.
 
+`flint.commit_record` signs the same kind of root over the whole record: edges,
+every node, each entity's label, and each activity's role and action. It also
+catches a sink demoted to neutral, or any label changed, after recording.
+
+**Argument scope.** A capability scope may bind argument values as `arg:<name>`
+entries (build them with `flint.argument_scope`). The endorser must then record
+exactly those values in `adprov:args`, a JSON object or a JSON-encoded string.
+That is how a capability is bound to a recipient or an amount: an injection that
+redirects the action to another recipient finds no capability covering it.
+
 **Sinks.** The sink set is policy, not a claim of the record. Passing
 `sink_actions` makes every activity whose `adprov:action` is listed a sink, so a
 record cannot drop a sink by relabelling it.
