@@ -2,7 +2,7 @@
 
 ## 0.2.1 — 2026-10-03
 
-It fixes what two rounds of linting, fuzzing, property-based testing and code
+It fixes what three rounds of linting, fuzzing, property-based testing and code
 review of 0.2.0 found. Two of those issues let a flow go undetected even under
 `strict=True`. Detection results are unchanged: on the full AgentDojo-PROV corpus (v2.3, six backends, 17,664
 traces), the default loader's graphs, witnesses, sweep rows and metrics are again
@@ -10,6 +10,24 @@ byte-identical to 0.1.0, strict mode gives the same graphs, and PROV renders are
 byte-identical.
 
 ### Fixed
+- **Strict parsing rejects duplicate JSON keys.** Python keeps the last value of a
+  duplicated key and other parsers keep the first, so a file listing
+  `adprov:integrity` as `untrusted` and then `trusted` loaded as **trusted**. The
+  producer and FLINT could disagree on a label. `strict=True` file loading now
+  rejects duplicate keys, as well as the non-standard `NaN`/`Infinity` literals.
+- **File loading has one error type.** Invalid JSON, nesting too deep for the parser
+  (which crashed it with `RecursionError`), non-UTF-8 bytes and a byte-order mark
+  used to escape as `JSONDecodeError`, `RecursionError` and `UnicodeDecodeError`.
+  They now raise `ProvFormatError`, and a leading byte-order mark is tolerated.
+- **Witness order is deterministic.** `flow_witnesses` iterated the sink
+  `frozenset`, whose order changes per process with Python's string-hash
+  randomisation. On the corpus, 442 DeepSeek traces have several witnessed sinks.
+  Sinks are now taken in graph order; the paths are unchanged.
+- **The README no longer overstates two adversaries.** Mimicry evades `f_emb` on the
+  corpus but not on every graph. `trust_attribution_endorser` reroutes only *direct*
+  ⊥→sink edges, which is every witness on the corpus, so an indirect flow survives it.
+  The README also said the endorser attack left the structural baseline untouched; it
+  shifts it slightly.
 - **f_flow is linear in graph size, however many untrusted sources there are.**
   `check_flow` ran one search per source, so it was quadratic when every step reads
   external data and nothing reaches a sink, which is the common benign case: 3.2 s at
@@ -60,6 +78,16 @@ byte-identical.
   and no longer crashes on a list-valued role.
 
 ### Added
+- `trust_attribution_endorser_all`: the general endorser attack, which routes every
+  out-edge of every untrusted entity through a fabricated endorser and silences
+  `f_flow` on any graph. It is registered with the sweep runner. The published sweep
+  keeps `trust_attribution_endorser`, which is unchanged; the two agree on all 17,664
+  corpus traces.
+- `parse_prov_json(text_or_bytes, strict=...)`: the parser behind
+  `load_prov_graph_from_file`, exported for callers holding PROV-JSON text.
+- Python 3.14 in the CI matrix and classifiers.
+- `docs/input-format.md` states that FLINT implements the two-point {⊥, ⊤} lattice,
+  and documents the parsing rules.
 - PROV-JSON multi-instance records, i.e. a list of objects under one identifier, as
   the `prov` library writes them. Strict mode rejects instances whose labels disagree.
 - A clearer error for `used` without `prov:entity` and `wasGeneratedBy` without
@@ -70,7 +98,7 @@ byte-identical.
   renaming, reordering and unrelated additions; the P1/P3 adversary invariants and
   input immutability; arbitrary JSON raising only `ProvFormatError`; and many-source
   scaling.
-- 103 tests (226 in total; coverage 63% → 93%): sections and roles, multi-instance
+- 123 tests (246 in total; coverage 63% → 93%): sections and roles, multi-instance
   records, a forced non-UTF-8 locale, the trace loader and CLI, config validation,
   `paths`, `visualize`, the budgeted mimicry and the `f_emb` score and novelty
   functions.

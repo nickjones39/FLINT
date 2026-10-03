@@ -299,3 +299,39 @@ class TestReachabilityEdges:
         G = load_prov_graph(_benign_doc())
         assert not check_flow(G)
         assert flow_witnesses(G) == []
+
+
+# ---------------------------------------------------------------------------
+# Witness order is deterministic (second review, v0.2.1)
+# ---------------------------------------------------------------------------
+
+def _many_sinks_doc() -> dict:
+    sinks = [f"adprov:s{i}" for i in range(12)]
+    return {
+        "entity": {"adprov:u": {"adprov:integrity": "untrusted"}},
+        "activity": {s: {"adprov:role": "sink"} for s in sinks},
+        "used": {f"adprov:r{i}": {"prov:activity": s, "prov:entity": "adprov:u"}
+                 for i, s in enumerate(sinks)},
+    }
+
+
+def test_witnesses_follow_graph_order():
+    G = load_prov_graph(_many_sinks_doc())
+    assert [s for _, s, _ in flow_witnesses(G)] == [f"adprov:s{i}" for i in range(12)]
+
+
+def test_witnesses_identical_across_hash_seeds():
+    import json
+    import subprocess
+    import sys
+    code = (
+        "import json, sys\n"
+        "from flint import load_prov_graph, flow_witnesses\n"
+        f"print(json.dumps(flow_witnesses(load_prov_graph(json.loads({json.dumps(json.dumps(_many_sinks_doc()))})))))\n"
+    )
+    outs = {
+        subprocess.run([sys.executable, "-c", code], env={"PYTHONHASHSEED": str(seed)},
+                       capture_output=True, text=True, check=True).stdout
+        for seed in (0, 1, 2, 3)
+    }
+    assert len(outs) == 1

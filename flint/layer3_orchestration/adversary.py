@@ -12,6 +12,11 @@ Adversary B variants — synthetic graph mutations applied to an existing flow g
                                  a D-role endorser.  Blocks D-avoiding reachability
                                  → evades f_flow (P3/H5).
 
+  trust_attribution_endorser_all — the general form: routes every out-edge of
+                                 every ⊥ entity through an endorser, so it also
+                                 silences indirect flows.  Not in the published
+                                 sweep; on that corpus every witness is direct.
+
   trust_attribution_relabel   — relabels every ⊥ entity as ⊤.  Empties U_src
                                  → evades f_flow (P3/H5).
 """
@@ -120,6 +125,37 @@ def trust_attribution_endorser(G: nx.DiGraph) -> nx.DiGraph:
         H.add_edge(u, endorser_id, relation="used")
         H.add_edge(endorser_id, v, relation="wasInformedBy")
 
+    return H
+
+
+def trust_attribution_endorser_all(G: nx.DiGraph) -> nx.DiGraph:
+    """Route every flow out of every ⊥ entity through a fabricated endorser.
+
+    The general form of ``trust_attribution_endorser``, which reroutes only
+    *direct* ⊥→sink ``used`` edges and so leaves an indirect flow
+    (⊥ → activity → entity → sink) standing. Here each out-edge of each ⊥
+    entity is replaced by a hop through one inserted D-role endorser:
+
+      ⊥ entity --used--> endorser (D) --wasInformedBy--> activity   (was used)
+      ⊥ entity --used--> endorser (D) --wasGeneratedBy--> entity    (was wasDerivedFrom)
+
+    Every flow path from a ⊥ entity starts with one of its out-edges, so every
+    such path now passes through D and f_flow(H) = False on any graph. The
+    published sweep uses ``trust_attribution_endorser``; on the AgentDojo-PROV
+    corpus every witness is direct, so the two agree there.
+    """
+    H = G.copy()
+    sources = get_untrusted_sources(H)
+    endorser_id = _fresh_id(H, "_adversary_endorser_all")
+    H.add_node(endorser_id, node_type="activity", **{ROLE_KEY: ENDORSER})
+    for u in sources:
+        for v in list(H.successors(u)):
+            if v == endorser_id:
+                continue
+            H.remove_edge(u, v)
+            H.add_edge(u, endorser_id, relation="used")
+            onward = "wasGeneratedBy" if H.nodes[v].get("node_type") == "entity" else "wasInformedBy"
+            H.add_edge(endorser_id, v, relation=onward)
     return H
 
 

@@ -49,6 +49,10 @@ use it as an attribute name. Attribute names must be strings.
 
 ### Entities — `adprov:integrity` (required)
 
+FLINT implements the two-point integrity lattice {⊥, ⊤}. The paper's definition
+allows any finite lattice, but there is no intermediate level here. A value other
+than these two is unrecognised (see below), not a level in between.
+
 | Value | Meaning |
 |---|---|
 | `untrusted` | ⊥: data from a channel the user does not control (tool output carrying external content: email bodies, web pages, files, messages, reviews). These are the flow sources. |
@@ -84,6 +88,16 @@ flow through it.
 ### Agents
 
 Agents are loaded, but none of their labels are read.
+
+## Parsing
+
+Read files with `load_prov_graph_from_file`, or parse text with `parse_prov_json`,
+rather than `json.loads`. Both raise `ProvFormatError` for anything unparseable:
+invalid JSON, non-UTF-8 bytes, or nesting too deep to parse. A leading byte-order
+mark is tolerated. Under `strict=True` they also reject **duplicate object keys**,
+because parsers disagree on which value wins, so a label could read ⊥ to its
+producer and ⊤ to FLINT. They also reject the non-standard `NaN` and `Infinity`
+literals.
 
 Label values may be bare strings (`"untrusted"`) or PROV-JSON typed literals
 (`{"$": "untrusted", "type": "xsd:string"}`). Both are read the same way.

@@ -29,6 +29,7 @@ from flint.layer3_orchestration.adversary import (
     structural_mimicry,
     structural_mimicry_budget,
     trust_attribution_endorser,
+    trust_attribution_endorser_all,
     trust_attribution_relabel,
 )
 
@@ -100,7 +101,7 @@ def _reference_witnesses(G):
     sinks, endorsers = get_sinks(G), get_endorsers(G)
     out = []
     for source in get_untrusted_sources(G):
-        for sink in sinks:
+        for sink in [n for n in G if n in sinks]:   # graph order, as flow_witnesses
             path = _reference_path(G, source, sink, endorsers)
             if path is not None:
                 out.append((source, sink, path))
@@ -226,6 +227,7 @@ def test_adversary_invariants(doc):
     for k in (0, 1, 4):
         assert f_flow(structural_mimicry_budget(G, k)) == base
     assert not f_flow(trust_attribution_relabel(G))                 # P3
+    assert not f_flow(trust_attribution_endorser_all(G))            # P3, general endorser
     assert f_flow(trust_attribution_endorser(G)) <= base
     assert f_emb(trust_attribution_relabel(G)) == f_emb(G)          # relabel is invisible to structure
     assert nx.node_link_data(G, edges="links") == before            # inputs untouched
@@ -259,6 +261,7 @@ def test_arbitrary_json_only_raises_prov_format_error(doc, strict):
     f_emb(G)
     structural_mimicry(G)
     trust_attribution_endorser(G)
+    trust_attribution_endorser_all(G)
     trust_attribution_relabel(G)
 
 

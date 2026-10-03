@@ -29,6 +29,7 @@ from flint.layer2_detectors.f_flow import f_flow
 from flint.layer3_orchestration.adversary import (
     structural_mimicry,
     trust_attribution_endorser,
+    trust_attribution_endorser_all,
     trust_attribution_relabel,
 )
 from flint.layer3_orchestration.metrics import compute_metrics, save_parquet
@@ -143,6 +144,7 @@ _ADVERSARY_FNS: dict[str, Callable[[nx.DiGraph], nx.DiGraph] | None] = {
     "none": None,
     "structural_mimicry": structural_mimicry,
     "trust_attribution_endorser": trust_attribution_endorser,
+    "trust_attribution_endorser_all": trust_attribution_endorser_all,
     "trust_attribution_relabel": trust_attribution_relabel,
 }
 

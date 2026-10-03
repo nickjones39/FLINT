@@ -47,21 +47,30 @@ framework's purpose is to be a reference tool for other experiments or research.
 3. **Evasion + orchestration** (`flint/layer3_orchestration/`) — a config-driven sweep
    over detector × adversary with parquet output and metrics aggregation, and the
    adversary module (`adversary.py`):
-   - `structural_mimicry` (plus a budget-parametric variant) — adds benign-looking
-     decoy substructure around untrusted entities; evades `f_emb`, never `f_flow`.
-   - `trust_attribution_relabel` — forges source-integrity labels (⊥→⊤), emptying the
-     untrusted-source set.
-   - `trust_attribution_endorser` — fabricates endorsements, rerouting ⊥→sink flows
-     through an inserted endorser.
+   - `structural_mimicry` (plus a budget-parametric variant) adds benign-looking decoy
+     substructure around untrusted entities. It never changes `f_flow`, on any graph.
+     It evades `f_emb` on the AgentDojo-PROV corpus, but not on every graph: it only
+     rewires *untrusted* entities, so a trusted entity with the canonical shape still
+     matches.
+   - `trust_attribution_relabel` forges source-integrity labels (⊥→⊤), emptying the
+     untrusted-source set. It silences `f_flow` on any graph.
+   - `trust_attribution_endorser` fabricates endorsements by rerouting each *direct*
+     ⊥→sink `used` edge through an inserted endorser. That silences `f_flow` on the
+     corpus, where every witness is direct, but an indirect flow
+     (⊥ → activity → entity → sink) survives it. This is the variant the published
+     sweep uses.
+   - `trust_attribution_endorser_all` is the general form. It routes every out-edge of
+     every untrusted entity through an endorser, so it silences `f_flow` on any graph.
 
 The claim the framework exists to demonstrate (Theorems 1–2 of the manuscript): no
 structural transformation can silence `f_flow`, because the untrusted→sink flow is
 constitutive of the attack — so an evading adversary must forge a source-integrity
 label or fabricate an endorsement, and no third option exists. The security signal in
 agent provenance is trust attribution, not graph shape. In the sweep this appears as a
-clean fingerprint: mimicry leaves `f_flow` untouched but evades the structural
-baseline, while the relabel/endorser attacks evade `f_flow` and leave the structural
-baseline untouched. Full proofs and the empirical evaluation (six agent backends,
+clean fingerprint on the corpus: mimicry leaves `f_flow` untouched but evades the
+structural baseline, while the relabel and endorser attacks evade `f_flow` but do not
+silence the structural baseline. Relabelling leaves it exactly unchanged; the endorser
+attack shifts it slightly, because it changes structure. Full proofs and the empirical evaluation (six agent backends,
 learned baselines, adaptive mimicry, signed labels and capability-bound endorsements)
 are in the manuscript.
 

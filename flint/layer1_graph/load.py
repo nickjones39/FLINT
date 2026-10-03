@@ -262,7 +262,54 @@ def load_prov_graph(doc: Mapping[str, Any], *, strict: bool = False) -> nx.DiGra
     return G
 
 
+def _strict_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """JSON object hook that refuses duplicate keys.
+
+    Parsers disagree on duplicates (Python keeps the last, others the first), so a
+    document with two ``adprov:integrity`` values can mean ⊥ to its producer and ⊤
+    to FLINT.
+    """
+    out: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in out:
+            raise ProvFormatError(f"duplicate JSON key {key!r}")
+        out[key] = value
+    return out
+
+
+def _reject_constant(name: str) -> Any:
+    raise ProvFormatError(f"{name} is not valid JSON")
+
+
+def parse_prov_json(data: str | bytes, *, strict: bool = False) -> Any:
+    """Parse PROV-JSON text, raising ``ProvFormatError`` for anything unparseable.
+
+    Bytes must be UTF-8 (RFC 8259); a leading byte-order mark is tolerated.
+    ``strict=True`` also rejects duplicate object keys and the non-standard
+    ``NaN`` / ``Infinity`` literals that Python's parser accepts.
+    """
+    if isinstance(data, bytes):
+        try:
+            data = data.decode("utf-8-sig")
+        except UnicodeDecodeError as e:
+            raise ProvFormatError(f"not UTF-8: {e}") from e
+    data = data.removeprefix("\ufeff")
+    hooks: dict[str, Any] = (
+        {"object_pairs_hook": _strict_object, "parse_constant": _reject_constant} if strict else {}
+    )
+    try:
+        return json.loads(data, **hooks)
+    except json.JSONDecodeError as e:
+        raise ProvFormatError(f"invalid JSON: {e}") from e
+    except RecursionError as e:
+        raise ProvFormatError("JSON nested too deeply to parse") from e
+
+
 def load_prov_graph_from_file(path: Path | str, *, strict: bool = False) -> nx.DiGraph:
-    """Read a PROV-JSON file (UTF-8, as RFC 8259 requires) and load it."""
-    doc = json.loads(Path(path).read_text(encoding="utf-8"))
+    """Read a PROV-JSON file and load it.
+
+    Every problem with the file's *content* raises ``ProvFormatError``; an
+    unreadable path raises the usual ``OSError`` (e.g. ``FileNotFoundError``).
+    """
+    doc = parse_prov_json(Path(path).read_bytes(), strict=strict)
     return load_prov_graph(doc, strict=strict)

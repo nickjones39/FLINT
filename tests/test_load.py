@@ -410,3 +410,51 @@ class TestFileEncoding:
         if r.returncode == 3:
             pytest.skip("cannot force a non-UTF-8 locale on this platform")
         assert r.returncode == 0, r.stderr
+
+
+# ---------------------------------------------------------------------------
+# Parsing: one error type, and strict JSON (second review, v0.2.1)
+# ---------------------------------------------------------------------------
+
+from flint import load_prov_graph_from_file, parse_prov_json  # noqa: E402
+
+
+class TestParsing:
+    @pytest.mark.parametrize("data", [
+        b'{"entity": ',                         # truncated
+        b"[" * 200_000 + b"]" * 200_000,        # nesting too deep for the parser
+        b'{"entity": {"adprov:e": {"prov:label": "\xff\xfe"}}}',   # not UTF-8
+    ], ids=["invalid", "deep", "not-utf8"])
+    def test_unparseable_input_is_a_format_error(self, strict, data):
+        with pytest.raises(ProvFormatError):
+            parse_prov_json(data, strict=strict)
+
+    def test_byte_order_mark_is_tolerated(self, strict):
+        assert parse_prov_json(b'\xef\xbb\xbf{"entity": {}}', strict=strict) == {"entity": {}}
+        assert parse_prov_json('﻿{"entity": {}}', strict=strict) == {"entity": {}}
+
+    def test_duplicate_label_rejected_in_strict(self):
+        text = '{"entity": {"adprov:e": {"adprov:integrity": "untrusted", "adprov:integrity": "trusted"}}}'
+        with pytest.raises(ProvFormatError, match="duplicate"):
+            parse_prov_json(text, strict=True)
+        # default keeps Python's last-wins reading, as published
+        assert parse_prov_json(text)["entity"]["adprov:e"]["adprov:integrity"] == "trusted"
+
+    @pytest.mark.parametrize("const", ["NaN", "Infinity", "-Infinity"])
+    def test_non_standard_constants_rejected_in_strict(self, const):
+        text = f'{{"entity": {{"adprov:e": {{"adprov:content_len": {const}}}}}}}'
+        with pytest.raises(ProvFormatError, match="not valid JSON"):
+            parse_prov_json(text, strict=True)
+        parse_prov_json(text)   # accepted by default
+
+    def test_file_loader_uses_the_same_contract(self, tmp_path, strict):
+        p = tmp_path / "t.json"
+        p.write_bytes(b'{"entity": ')
+        with pytest.raises(ProvFormatError):
+            load_prov_graph_from_file(p, strict=strict)
+        p.write_text('{"entity": {"adprov:e": {"adprov:integrity": "untrusted", "adprov:integrity": "trusted"}}}')
+        if strict:
+            with pytest.raises(ProvFormatError, match="duplicate"):
+                load_prov_graph_from_file(p, strict=True)
+        with pytest.raises(FileNotFoundError):
+            load_prov_graph_from_file(tmp_path / "missing.json", strict=strict)

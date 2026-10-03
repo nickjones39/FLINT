@@ -19,12 +19,13 @@ __version__ = "0.2.1"
 
 from flint.errors import ProvFormatError
 from flint.layer1_graph.flow import flow_witnesses
-from flint.layer1_graph.load import load_prov_graph, load_prov_graph_from_file
+from flint.layer1_graph.load import load_prov_graph, load_prov_graph_from_file, parse_prov_json
 from flint.layer2_detectors.f_flow import FlowDetectionResult, f_flow, f_flow_detailed
 from flint.layer3_orchestration.adversary import (
     structural_mimicry,
     structural_mimicry_budget,
     trust_attribution_endorser,
+    trust_attribution_endorser_all,
     trust_attribution_relabel,
 )
 from flint.spec import (
@@ -47,6 +48,7 @@ __all__ = [  # noqa: RUF022 — grouped by role, not sorted
     # loading
     "load_prov_graph",
     "load_prov_graph_from_file",
+    "parse_prov_json",
     "ProvFormatError",
     # detection
     "f_flow",
@@ -57,6 +59,7 @@ __all__ = [  # noqa: RUF022 — grouped by role, not sorted
     "structural_mimicry",
     "structural_mimicry_budget",
     "trust_attribution_endorser",
+    "trust_attribution_endorser_all",
     "trust_attribution_relabel",
     # input vocabulary (docs/input-format.md)
     "ADPROV_NS",

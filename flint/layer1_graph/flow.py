@@ -118,16 +118,22 @@ def flow_witnesses(G: nx.DiGraph) -> list[tuple[str, str, list[str]]]:
     Each path is the shortest D-avoiding path from source to sink: the BFS-tree
     path, found by one search per source rather than one per (source, sink)
     pair. Useful for debugging and trace interpretation.
+
+    The output is deterministic: sources and sinks are both taken in graph
+    (document) order, so the same graph gives the same list in every process.
+    (Iterating the ``get_sinks`` frozenset would not: Python randomises string
+    hashing per process.)
     """
     sinks = get_sinks(G)
     if not sinks:
         return []
     endorsers = get_endorsers(G)
+    ordered_sinks = [n for n in G if n in sinks]
     witnesses: list[tuple[str, str, list[str]]] = []
 
     for source in get_untrusted_sources(G):
         parent = _d_avoiding_bfs_tree(G, source, endorsers)
-        for sink in sinks:
+        for sink in ordered_sinks:
             if sink in parent:
                 witnesses.append((source, sink, _tree_path(parent, sink)))
     return witnesses

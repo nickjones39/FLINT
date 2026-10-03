@@ -303,3 +303,53 @@ class TestFEmbNonStringFeatures:
         # the k=1 canonical shape must still produce the published constant
         G = load_prov_graph(_injection_doc())
         assert _INJECTION_HASH in {_structural_node_hash(G, n) for n in G}
+
+
+# ---------------------------------------------------------------------------
+# The documented scope of each adversary, and the general endorser
+# ---------------------------------------------------------------------------
+
+from flint.layer3_orchestration.adversary import trust_attribution_endorser_all  # noqa: E402
+
+
+def _indirect_flow() -> nx.DiGraph:
+    """u(⊥) --used--> a --wasGeneratedBy--> e2 --used--> s(sink)."""
+    H = nx.DiGraph()
+    H.add_node("u", node_type="entity", **{"adprov:integrity": "untrusted"})
+    H.add_node("a", node_type="activity", **{"adprov:role": "neutral"})
+    H.add_node("e2", node_type="entity", **{"adprov:integrity": "trusted"})
+    H.add_node("s", node_type="activity", **{"adprov:role": "sink"})
+    H.add_edge("u", "a", relation="used")
+    H.add_edge("a", "e2", relation="wasGeneratedBy")
+    H.add_edge("e2", "s", relation="used")
+    return H
+
+
+class TestAdversaryScope:
+    def test_direct_only_endorser_leaves_an_indirect_flow(self):
+        assert f_flow(trust_attribution_endorser(_indirect_flow()))
+
+    def test_general_endorser_silences_an_indirect_flow(self):
+        G = _indirect_flow()
+        H = trust_attribution_endorser_all(G)
+        assert f_flow(G) and not f_flow(H)
+        assert H.edges["_adversary_endorser_all", "a"]["relation"] == "wasInformedBy"
+        assert not G.has_node("_adversary_endorser_all")          # input untouched
+
+    def test_general_endorser_reroutes_derivations_as_generation(self):
+        G = _indirect_flow()
+        G.add_node("d", node_type="entity", **{"adprov:integrity": "trusted"})
+        G.add_edge("u", "d", relation="wasDerivedFrom")
+        G.add_edge("d", "s", relation="used")
+        H = trust_attribution_endorser_all(G)
+        assert H.edges["_adversary_endorser_all", "d"]["relation"] == "wasGeneratedBy"
+        assert not f_flow(H)
+
+    def test_mimicry_does_not_evade_f_emb_through_a_trusted_canonical_entity(self):
+        G = nx.DiGraph()
+        G.add_node("r", node_type="activity", **{"adprov:role": "neutral"})
+        G.add_node("t", node_type="entity", **{"adprov:integrity": "trusted"})
+        G.add_node("s", node_type="activity", **{"adprov:role": "sink"})
+        G.add_edge("r", "t", relation="wasGeneratedBy")
+        G.add_edge("t", "s", relation="used")
+        assert f_emb(G) and f_emb(structural_mimicry(G))
