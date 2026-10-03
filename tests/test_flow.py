@@ -4,10 +4,8 @@ All tests use synthetic PROV-JSON documents; no model calls required.
 """
 from __future__ import annotations
 
-import pytest
 import networkx as nx
 
-from flint.layer1_graph.load import load_prov_graph
 from flint.layer1_graph.flow import (
     check_flow,
     d_avoiding_reachable,
@@ -16,8 +14,8 @@ from flint.layer1_graph.flow import (
     get_sinks,
     get_untrusted_sources,
 )
+from flint.layer1_graph.load import load_prov_graph
 from flint.layer2_detectors.f_flow import f_flow, f_flow_detailed
-
 
 # ---------------------------------------------------------------------------
 # Helpers — build synthetic PROV-JSON documents

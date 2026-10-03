@@ -29,8 +29,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pydot
 import prov.model as pm
+import pydot
 from prov.dot import prov_to_dot
 
 # AgentDojo-PROV extension namespace (the corpus uses the `adprov:` prefix).

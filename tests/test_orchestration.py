@@ -6,15 +6,17 @@ encode the P1/P2/P3/P4 thesis results.
 """
 from __future__ import annotations
 
-import math
 from pathlib import Path
 
-import pandas as pd
 import pytest
 
-from flint.layer3_orchestration.runner import SweepConfig, Trace, run_sweep
-from flint.layer3_orchestration.metrics import compute_metrics
+# The sweep runner is the [sweep] extra; skip cleanly on a core-only install.
+pd = pytest.importorskip("pandas")
+pytest.importorskip("yaml")
+pytest.importorskip("pyarrow")
 
+from flint.layer3_orchestration.metrics import compute_metrics  # noqa: E402
+from flint.layer3_orchestration.runner import SweepConfig, Trace, run_sweep  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Synthetic traces

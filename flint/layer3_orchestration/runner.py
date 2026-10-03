@@ -14,9 +14,9 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
 
 import networkx as nx
 import pandas as pd
@@ -32,7 +32,6 @@ from flint.layer3_orchestration.adversary import (
 )
 from flint.layer3_orchestration.metrics import compute_metrics, save_parquet
 from flint.paths import iter_files
-
 
 # ---------------------------------------------------------------------------
 # Data types
@@ -102,7 +101,7 @@ class SweepConfig:
     adversaries: list[str]  = field(default_factory=lambda: ["none"])
 
     @classmethod
-    def from_yaml(cls, path: Path | str) -> "SweepConfig":
+    def from_yaml(cls, path: Path | str) -> SweepConfig:
         with open(path) as fh:
             data = yaml.safe_load(fh)
         known = set(cls.__dataclass_fields__)

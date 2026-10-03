@@ -69,7 +69,7 @@ def output_dir(model: str) -> Path:
     return output_root() / model
 
 
-def iter_files(directory: Path, pattern: str):
+def iter_files(directory: Path, pattern: str) -> list[Path]:
     """Glob ``pattern`` under ``directory``, skipping macOS AppleDouble sidecars.
 
     A corpus copied to a non-HFS filesystem carries a ``._<name>`` sidecar for
@@ -82,12 +82,12 @@ def iter_files(directory: Path, pattern: str):
     return sorted(p for p in directory.glob(pattern) if not p.name.startswith("._"))
 
 
-def prov_docs(prov_dir: Path):
+def prov_docs(prov_dir: Path) -> list[Path]:
     """PROV-JSON documents under an attack subdirectory (excludes transcripts)."""
     return [p for p in iter_files(prov_dir, "*.json")
             if not p.name.endswith(".transcript.json")]
 
 
-def transcripts(corpus: Path):
+def transcripts(corpus: Path) -> list[Path]:
     """``<corpus>/prov/<attack>/*.transcript.json``, AppleDouble-free."""
     return iter_files(corpus, "prov/*/*.transcript.json")

@@ -9,19 +9,15 @@ All tests use synthetic PROV-JSON traces; no model calls required.
 """
 from __future__ import annotations
 
-import pytest
-import networkx as nx
-
+from flint.layer1_graph.flow import get_untrusted_sources
 from flint.layer1_graph.load import load_prov_graph
-from flint.layer1_graph.flow import get_sinks, get_untrusted_sources
+from flint.layer2_detectors.f_emb import _INJECTION_HASH, _structural_node_hash, f_emb
 from flint.layer2_detectors.f_flow import f_flow
-from flint.layer2_detectors.f_emb import f_emb, _INJECTION_HASH, _structural_node_hash
 from flint.layer3_orchestration.adversary import (
     structural_mimicry,
     trust_attribution_endorser,
     trust_attribution_relabel,
 )
-
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
@@ -211,5 +207,4 @@ class TestP3TrustAttributionEvadesFFlow:
     def test_relabel_empties_untrusted_sources(self):
         G = load_prov_graph(_injection_doc())
         H = trust_attribution_relabel(G)
-        from flint.layer1_graph.flow import get_untrusted_sources
         assert len(get_untrusted_sources(H)) == 0

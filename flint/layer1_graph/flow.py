@@ -10,16 +10,22 @@ from collections import deque
 
 import networkx as nx
 
+from flint.spec import ENDORSER, INTEGRITY_KEY, ROLE_KEY, SINK, UNTRUSTED
 
 # ---------------------------------------------------------------------------
 # Node-set extractors
 # ---------------------------------------------------------------------------
 
 def get_untrusted_sources(G: nx.DiGraph) -> list[str]:
-    """U_src: entity nodes labelled ⊥ (adprov:integrity == 'untrusted')."""
+    """U_src: entity nodes labelled ⊥ (adprov:integrity == 'untrusted').
+
+    An entity with no label is not counted here. A deployment that must treat a
+    missing label as ⊥ loads with ``load_prov_graph(doc, strict=True)``, which
+    writes the ⊥ label in before this function sees the graph.
+    """
     return [
         n for n, d in G.nodes(data=True)
-        if d.get("node_type") == "entity" and d.get("adprov:integrity") == "untrusted"
+        if d.get("node_type") == "entity" and d.get(INTEGRITY_KEY) == UNTRUSTED
     ]
 
 
@@ -27,7 +33,7 @@ def get_sinks(G: nx.DiGraph) -> frozenset[str]:
     """S: activity nodes with adprov:role == 'sink'."""
     return frozenset(
         n for n, d in G.nodes(data=True)
-        if d.get("adprov:role") == "sink"
+        if d.get(ROLE_KEY) == SINK
     )
 
 
@@ -35,7 +41,7 @@ def get_endorsers(G: nx.DiGraph) -> frozenset[str]:
     """D: activity nodes with adprov:role == 'endorser'."""
     return frozenset(
         n for n, d in G.nodes(data=True)
-        if d.get("adprov:role") == "endorser"
+        if d.get(ROLE_KEY) == ENDORSER
     )
 
 

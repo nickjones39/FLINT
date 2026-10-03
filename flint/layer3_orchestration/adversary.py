@@ -21,6 +21,7 @@ import networkx as nx
 
 from flint.layer1_graph.flow import get_sinks, get_untrusted_sources
 from flint.layer2_detectors.f_emb import MAX_CANONICAL_OUT
+from flint.spec import ENDORSER, INTEGRITY_KEY, NEUTRAL, ROLE_KEY, TRUSTED, UNTRUSTED
 
 
 def structural_mimicry(G: nx.DiGraph) -> nx.DiGraph:
@@ -46,7 +47,7 @@ def structural_mimicry(G: nx.DiGraph) -> nx.DiGraph:
         for _ in range(n_decoys):
             decoy_id = f"_decoy_neutral_{decoy_idx}"
             decoy_idx += 1
-            H.add_node(decoy_id, node_type="activity", **{"adprov:role": "neutral"})
+            H.add_node(decoy_id, node_type="activity", **{ROLE_KEY: NEUTRAL})
             H.add_edge(src, decoy_id, relation="used")
     return H
 
@@ -75,7 +76,7 @@ def structural_mimicry_budget(G: nx.DiGraph, n_decoys: int) -> nx.DiGraph:
         for _ in range(n_decoys):
             decoy_id = f"_decoy_budget_{decoy_idx}"
             decoy_idx += 1
-            H.add_node(decoy_id, node_type="activity", **{"adprov:role": "neutral"})
+            H.add_node(decoy_id, node_type="activity", **{ROLE_KEY: NEUTRAL})
             H.add_edge(src, decoy_id, relation="used")
     return H
 
@@ -94,7 +95,7 @@ def trust_attribution_endorser(G: nx.DiGraph) -> nx.DiGraph:
     sinks = get_sinks(H)
     sources = set(get_untrusted_sources(H))
     endorser_id = "_adversary_endorser"
-    H.add_node(endorser_id, node_type="activity", **{"adprov:role": "endorser"})
+    H.add_node(endorser_id, node_type="activity", **{ROLE_KEY: ENDORSER})
 
     to_remove = [
         (u, v)
@@ -118,6 +119,6 @@ def trust_attribution_relabel(G: nx.DiGraph) -> nx.DiGraph:
     """
     H = G.copy()
     for n in H.nodes():
-        if H.nodes[n].get("adprov:integrity") == "untrusted":
-            H.nodes[n]["adprov:integrity"] = "trusted"
+        if H.nodes[n].get(INTEGRITY_KEY) == UNTRUSTED:
+            H.nodes[n][INTEGRITY_KEY] = TRUSTED
     return H
