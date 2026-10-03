@@ -149,12 +149,14 @@ them separately. One attests where data came from, the other what a user
 authorised. Neither verifies as the other.
 
 **Omitted relations.** Signed labels bind to entities, not to edges, so a record
-could still drop the one relation that carries a flow. The recorder therefore also
+could still lose the one relation that carries a flow after it was recorded. The recorder therefore also
 signs a commitment to the trace's relations with `flint.commit_relations`: a
 Merkle root (RFC 6962 hashing) over every flow edge as (relation, from, to). The
 commitment is stored alongside the trace and passed as
 `verify_attribution(..., relations=token)`. If any edge was omitted, added or
-retyped, `result.record_complete` is False and `result.alert` is True.
+retyped after recording, `result.record_complete` is False and `result.alert` is
+True. A relation the recorder never observed cannot be recovered this way: the
+record must still be flow-complete.
 
 **Sinks.** The sink set is policy, not a claim of the record. Passing
 `sink_actions` makes every activity whose `adprov:action` is listed a sink, so a

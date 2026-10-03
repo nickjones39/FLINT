@@ -25,11 +25,13 @@ keystore. ``flint.attribution.ed25519`` provides Ed25519 implementations (the
 attest different things, and Theorem 3 needs neither to imply the other.
 
 * **Relation commitment (§V's closing remark).** Labels bind to entities, not to
-  edges, so a tool could still *omit* a relation and break the flow path. The
-  recorder therefore also signs, with sk_rec, a Merkle root (RFC 6962 hashing)
-  over every flow edge it emitted. ``verify_attribution(..., relations=token)``
-  recomputes the root from the graph and reports ``record_complete``; an omitted
-  or added edge makes it False, which a deployment treats as an alert.
+  edges, so a relation could still be dropped from the record between recording
+  and detection, breaking the flow path. The recorder therefore also signs, with
+  sk_rec, a Merkle root (RFC 6962 hashing) over every flow edge it emitted.
+  ``verify_attribution(..., relations=token)`` recomputes the root and reports
+  ``record_complete``; an edge dropped, added or altered after recording makes
+  it False, which a deployment treats as an alert. It cannot restore a relation
+  the recorder never observed: the record must still be flow-complete (A4).
 
 Out of scope, as in the paper: compromise of sk_rec or sk_cap (whoever holds a key
 can sign anything it covers). Signatures make labels unforgeable, not correct.

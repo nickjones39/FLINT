@@ -23,8 +23,9 @@ existing changes: `f_flow`, the loader and the adversaries behave exactly as in
   RFC 6962 Merkle root over every flow edge. `verify_attribution(...,
   relations=token)` reports `record_complete`, and `AttributionResult.alert`
   combines it with f_flow. This closes the edge-omission variant the manuscript's
-  §V left open: a record that drops the edge carrying a flow now alerts instead of
-  passing.
+  §V left open: a record that loses the edge carrying a flow after recording now
+  alerts instead of passing. A relation the recorder never observed is still out
+  of reach.
 - **`Signer` / `Verifier` protocols.** FLINT never holds keys. `flint.attribution`
   needs only the core.
 - **`flint.attribution.ed25519`.** Ed25519 implementations with key ids, rotation
