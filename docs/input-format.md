@@ -17,10 +17,35 @@ Labels are read only under the `adprov:` prefix. Declaring it in the document's
 binds `adprov` to another URI, or binds this URI to a different prefix, is rejected,
 because its labels would otherwise be silently skipped.
 
+## Document sections
+
+Under `strict=True`, only these top-level sections are accepted:
+
+| Kind | Sections |
+|---|---|
+| namespaces | `prefix` |
+| nodes | `entity`, `activity`, `agent` |
+| flow relations | `used`, `wasGeneratedBy`, `wasDerivedFrom`, `wasInformedBy` |
+| non-flow relations (ignored) | `wasAssociatedWith`, `wasAttributedTo`, `actedOnBehalfOf` |
+
+Anything else is rejected, including a `bundle` and any other PROV relation
+(`wasStartedBy`, `wasEndedBy`, `wasInvalidatedBy`, `wasInfluencedBy`, `hadMember`,
+`specializationOf`, `alternateOf`, `mentionOf`, …). Each of these could carry a flow
+FLINT does not model, so strict mode refuses the document rather than miss it. If your
+producer needs one of them, express the flow with the four flow relations. The
+default loader ignores these sections, as the published results did.
+
+A record is normally one JSON object. PROV-JSON also allows a **list of objects**
+when several records share an identifier, and FLINT accepts that too. Each instance
+of a relation becomes an edge, and the instances of a node are merged into one node.
+Under `strict=True`, instances that disagree on `adprov:integrity` or `adprov:role`
+are rejected.
+
 ## Nodes
 
 Nodes are the `entity`, `activity` and `agent` sections. An identifier must appear in
-only one of them.
+only one of them. `node_type` is reserved for FLINT's own use, so a document may not
+use it as an attribute name. Attribute names must be strings.
 
 ### Entities — `adprov:integrity` (required)
 
@@ -51,6 +76,11 @@ sink, and reading it as `sink` would turn every unlabelled step into an alarm.
 > to be one. That is the label forgery the manuscript's Theorem 2 identifies.
 > Signed labels and capability-bound endorsements are planned for v0.3.0.
 
+Roles exist only on activities: S and D are sets of activities. The detector ignores
+an `adprov:role` on an entity or agent in either mode, and `strict=True` rejects it.
+Without this rule, an endorser label mislabelled onto a data node would cut every
+flow through it.
+
 ### Agents
 
 Agents are loaded, but none of their labels are read.
@@ -71,8 +101,11 @@ endpoint fields are required, must be qualified-name strings, and under
 | `wasDerivedFrom` | `prov:generatedEntity` (entity), `prov:usedEntity` (entity) | used → generated |
 | `wasInformedBy` | `prov:informed` (activity), `prov:informant` (activity) | informant → informed |
 
-All other relations (`wasAssociatedWith`, `wasAttributedTo`, `actedOnBehalfOf`, …) are
-accepted and ignored. Other attributes, such as `prov:time`, `prov:label` and
+`used` without `prov:entity` and `wasGeneratedBy` without `prov:activity` are valid
+PROV, but FLINT rejects them in both modes, because it cannot place a flow through an
+unidentified node. The relations `wasAssociatedWith`, `wasAttributedTo` and
+`actedOnBehalfOf` are accepted and ignored. For every other relation, see
+[Document sections](#document-sections). Other attributes, such as `prov:time`, `prov:label` and
 `adprov:content_hash`, are kept on the graph and ignored by the detector.
 
 ## The decision

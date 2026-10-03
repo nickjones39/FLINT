@@ -9,6 +9,11 @@ from pathlib import Path
 
 import pandas as pd
 
+_METRIC_COLUMNS = [
+    "detector", "compression", "adversary", "tp", "fp", "tn", "fn",
+    "tpr", "fpr", "precision", "n_traces",
+]
+
 
 def compute_metrics(results: pd.DataFrame) -> pd.DataFrame:
     """Compute TPR / FPR / precision per (detector, compression, adversary) group.
@@ -20,7 +25,15 @@ def compute_metrics(results: pd.DataFrame) -> pd.DataFrame:
     Returns one row per group with columns:
       tp, fp, tn, fn, tpr, fpr, precision, n_traces.
     """
+    for col in ("detected", "ground_truth"):
+        # `~` on an object column of Python bools is bitwise NOT (-1/-2), which
+        # would silently corrupt every count; require a real bool dtype.
+        if col in results and not pd.api.types.is_bool_dtype(results[col]):
+            raise ValueError(f"column {col!r} must have bool dtype, got {results[col].dtype}")
+
     rows: list[dict] = []
+    if results.empty:
+        return pd.DataFrame(rows, columns=_METRIC_COLUMNS)
     for (detector, compression, adversary), grp in results.groupby(
         ["detector", "compression", "adversary"]
     ):
@@ -41,7 +54,7 @@ def compute_metrics(results: pd.DataFrame) -> pd.DataFrame:
             "tpr": tpr, "fpr": fpr, "precision": precision,
             "n_traces": len(grp),
         })
-    return pd.DataFrame(rows)
+    return pd.DataFrame(rows, columns=_METRIC_COLUMNS)
 
 
 def save_parquet(df: pd.DataFrame, path: Path | str) -> None:

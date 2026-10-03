@@ -5,6 +5,7 @@ All tests use synthetic PROV-JSON documents; no model calls required.
 from __future__ import annotations
 
 import networkx as nx
+import pytest
 
 from flint.layer1_graph.flow import (
     check_flow,
@@ -249,3 +250,52 @@ class TestFFlowDetector:
         result = f_flow_detailed(G)
         assert bool(result) is True
 
+
+
+# ---------------------------------------------------------------------------
+# S and D are sets of activities (v0.2.1)
+# ---------------------------------------------------------------------------
+
+class TestRolesOnlyCountOnActivities:
+    def _graph(self, role_holder_type: str, role: str) -> nx.DiGraph:
+        G = nx.DiGraph()
+        G.add_node("u", node_type="entity", **{"adprov:integrity": "untrusted"})
+        G.add_node("x", node_type=role_holder_type, **{"adprov:role": role})
+        G.add_node("s", node_type="activity", **{"adprov:role": "sink"})
+        G.add_edge("u", "x")
+        G.add_edge("x", "s")
+        return G
+
+    @pytest.mark.parametrize("holder", ["entity", "agent"])
+    def test_non_activity_endorser_does_not_block(self, holder):
+        G = self._graph(holder, "endorser")
+        assert get_endorsers(G) == frozenset()
+        assert f_flow(G)
+
+    def test_activity_endorser_still_blocks(self):
+        G = self._graph("activity", "endorser")
+        assert get_endorsers(G) == frozenset({"x"})
+        assert not f_flow(G)
+
+    @pytest.mark.parametrize("holder", ["entity", "agent"])
+    def test_non_activity_sink_is_not_a_sink(self, holder):
+        G = self._graph(holder, "sink")
+        assert get_sinks(G) == frozenset({"s"})
+
+    def test_untyped_node_is_neither(self):
+        G = nx.DiGraph()
+        G.add_node("x", **{"adprov:role": "sink"})
+        G.add_node("y", **{"adprov:role": "endorser"})
+        assert get_sinks(G) == get_endorsers(G) == frozenset()
+
+
+class TestReachabilityEdges:
+    def test_source_that_is_a_target(self):
+        G = nx.DiGraph()
+        G.add_node("a")
+        assert d_avoiding_reachable(G, "a", frozenset({"a"}), frozenset())
+
+    def test_no_sinks_short_circuits(self):
+        G = load_prov_graph(_benign_doc())
+        assert not check_flow(G)
+        assert flow_witnesses(G) == []

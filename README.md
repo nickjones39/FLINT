@@ -185,7 +185,7 @@ uv add --editable ../flint-framework                                     # a loc
 
 `pip install "flint-prov @ git+https://github.com/nickjones39/FLINT"` works the same
 way if you do not use uv. Pin a release tag in production, e.g.
-`flint-prov @ git+https://github.com/nickjones39/FLINT@v0.2.0`.
+`flint-prov @ git+https://github.com/nickjones39/FLINT@v0.2.1`.
 
 ---
 
@@ -204,10 +204,13 @@ if result:
 - **Write the labels FLINT reads.** Every entity needs `adprov:integrity` and every
   activity `adprov:role`. The vocabulary is specified in
   [`docs/input-format.md`](docs/input-format.md).
-- **Load with `strict=True` in deployment.** Strict mode fails closed: an entity
-  with a missing or unrecognised integrity label is treated as untrusted, and a
-  document with an unlabelled activity, a dangling reference or a conflicting
-  `adprov` prefix raises `flint.ProvFormatError`. The default mode
+- **Load with `strict=True` in deployment.** Strict mode fails closed. An entity
+  with a missing or unrecognised integrity label is treated as untrusted. A document
+  raises `flint.ProvFormatError` if it has any of:
+  - an unlabelled activity, or a role label on an entity or agent;
+  - a dangling reference;
+  - a bundle, or a PROV relation FLINT does not model;
+  - a conflicting `adprov` prefix. The default mode
   (`strict=False`) is the one the published results use; on well-formed input the
   two give identical graphs.
 - **Pin a version.** Only the names in `flint.__all__` form the versioned API.

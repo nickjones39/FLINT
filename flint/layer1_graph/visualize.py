@@ -20,6 +20,9 @@ FLINT-specific colours on top of the W3C palette:
   Activity role=endorser  #B8CCF8  (light blue — trust endorsement)
   Agent                   #FED37F  (standard W3C orange — unchanged)
 
+An entity with no integrity label is drawn as untrusted, matching the
+fail-closed reading in docs/input-format.md.
+
 Annotation side-tables (the note-shaped nodes for attributes) are kept: they
 show the adprov:integrity, adprov:role, and adprov:content_hash values inline,
 which is standard W3C PROV style.
@@ -28,13 +31,23 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
+import networkx as nx
 import prov.model as pm
 import pydot
 from prov.dot import prov_to_dot
 
-# AgentDojo-PROV extension namespace (the corpus uses the `adprov:` prefix).
-ADPROV_NS = "https://nickjones39.github.io/agentdojo-prov/ns#"
+from flint.layer1_graph.load import load_prov_graph
+from flint.spec import (
+    ADPROV_NS,
+    ADPROV_PREFIX,
+    ENDORSER,
+    INTEGRITY_KEY,
+    ROLE_KEY,
+    SINK,
+    TRUSTED,
+)
 
 # ── FLINT colour overrides (applied over W3C defaults) ───────────────────────
 _COLOR_ENTITY_TRUSTED    = "#FFFC87"   # W3C default yellow — keep
@@ -55,16 +68,16 @@ def _url_to_qid(url_attr: str) -> str | None:
     """
     url = url_attr.strip('"')
     if url.startswith(ADPROV_NS):
-        return "adprov:" + url[len(ADPROV_NS):]
+        return f"{ADPROV_PREFIX}:" + url[len(ADPROV_NS):]
     return None
 
 
-def _apply_flint_colors(
-    dot: pydot.Dot,
-    entity_attrs: dict[str, dict],
-    activity_attrs: dict[str, dict],
-) -> None:
-    """Post-process pydot graph: apply FLINT integrity/role colours to n* nodes."""
+def _apply_flint_colors(dot: pydot.Dot, G: nx.DiGraph) -> None:
+    """Post-process pydot graph: apply FLINT integrity/role colours to n* nodes.
+
+    Labels are read from the loaded graph ``G``, so typed literals and
+    multi-instance records are already normalised.
+    """
     for node in dot.get_node_list():
         attrs = node.get_attributes()
         url_val = attrs.get("URL")
@@ -74,28 +87,37 @@ def _apply_flint_colors(
         if qid is None:
             continue
 
-        if qid in entity_attrs:
-            integrity = entity_attrs[qid].get("adprov:integrity", "trusted")
-            color = _COLOR_ENTITY_UNTRUSTED if integrity == "untrusted" else _COLOR_ENTITY_TRUSTED
-            node.set_fillcolor(color)
-            if integrity == "untrusted":
+        if qid not in G:
+            continue
+        data = G.nodes[qid]
+        if data.get("node_type") == "entity":
+            untrusted = data.get(INTEGRITY_KEY) != TRUSTED   # missing ⇒ untrusted
+            node.set_fillcolor(_COLOR_ENTITY_UNTRUSTED if untrusted else _COLOR_ENTITY_TRUSTED)
+            if untrusted:
                 node.set_color("#CC4444")   # darker border to emphasise taint
 
-        elif qid in activity_attrs:
-            role = activity_attrs[qid].get("adprov:role", "neutral")
+        elif data.get("node_type") == "activity":
+            role = data.get(ROLE_KEY)
+            if not isinstance(role, str):   # missing, or e.g. a list: unhashable
+                role = None
             color = {
-                "sink": _COLOR_ACTIVITY_SINK,
-                "endorser": _COLOR_ACTIVITY_ENDORSER,
-            }.get(role, _COLOR_ACTIVITY_NEUTRAL)
+                SINK: _COLOR_ACTIVITY_SINK,
+                ENDORSER: _COLOR_ACTIVITY_ENDORSER,
+            }.get(role or "", _COLOR_ACTIVITY_NEUTRAL)
             node.set_fillcolor(color)
-            if role == "sink":
+            if role == SINK:
                 node.set_color("#6E1414")
                 node.set_fontcolor("white")   # dark fill needs a light label
-            elif role == "endorser":
+            elif role == ENDORSER:
                 node.set_color("#2244AA")
 
 
-def validate_prov_json(doc_dict: dict) -> pm.ProvDocument:
+def _dot_string(text: str) -> str:
+    """Quote ``text`` as a Graphviz string literal."""
+    return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def validate_prov_json(doc_dict: dict[str, Any]) -> pm.ProvDocument:
     """Parse and validate a PROV-JSON dict via the W3C prov library.
 
     Raises prov.model.ProvException (or similar) on invalid documents.
@@ -105,7 +127,7 @@ def validate_prov_json(doc_dict: dict) -> pm.ProvDocument:
 
 
 def render_prov_graph(
-    doc_dict: dict,
+    doc_dict: dict[str, Any],
     out_path: Path | str,
     title: str = "",
     formats: tuple[str, ...] = ("svg", "png"),
@@ -114,7 +136,8 @@ def render_prov_graph(
 ) -> list[Path]:
     """Validate doc_dict as W3C PROV-JSON, render to SVG and/or PNG.
 
-    out_path is the file stem (without extension), e.g. 'results/prov/task_6_benign'.
+    out_path is the file stem (without extension), e.g. 'results/prov/task_6_benign';
+    each format's extension is appended to it, so a stem may itself contain dots.
     Raises on invalid PROV-JSON (validation happens inside validate_prov_json).
     Returns list of written paths.
 
@@ -139,21 +162,17 @@ def render_prov_graph(
 
     # Inject title into graph label
     if title:
-        dot.set_label(f'"{title}"')
+        dot.set_label(_dot_string(title))
         dot.set_labelloc("t")
         dot.set_fontname("Helvetica")
         dot.set_fontsize("11")
 
     # Apply FLINT colours
-    _apply_flint_colors(
-        dot,
-        entity_attrs=doc_dict.get("entity", {}),
-        activity_attrs=doc_dict.get("activity", {}),
-    )
+    _apply_flint_colors(dot, load_prov_graph(doc_dict))
 
     written: list[Path] = []
     for fmt in formats:
-        dest = out_path.with_suffix(f".{fmt}")
+        dest = out_path.with_name(f"{out_path.name}.{fmt}")
         if fmt == "svg":
             dot.write_svg(str(dest))
         elif fmt == "png":
@@ -167,7 +186,7 @@ def render_prov_graph(
 
 # Alias used by the PROV-render step in scripts/regen.sh
 def render_prov_json(
-    doc: dict,
+    doc: dict[str, Any],
     out_path: Path | str,
     title: str = "",
     formats: tuple[str, ...] = ("svg", "png"),

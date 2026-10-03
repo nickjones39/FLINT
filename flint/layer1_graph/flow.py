@@ -30,18 +30,26 @@ def get_untrusted_sources(G: nx.DiGraph) -> list[str]:
 
 
 def get_sinks(G: nx.DiGraph) -> frozenset[str]:
-    """S: activity nodes with adprov:role == 'sink'."""
+    """S: activity nodes with adprov:role == 'sink'.
+
+    S ⊆ Activities: a role on an entity or agent is not a sink.
+    """
     return frozenset(
         n for n, d in G.nodes(data=True)
-        if d.get(ROLE_KEY) == SINK
+        if d.get("node_type") == "activity" and d.get(ROLE_KEY) == SINK
     )
 
 
 def get_endorsers(G: nx.DiGraph) -> frozenset[str]:
-    """D: activity nodes with adprov:role == 'endorser'."""
+    """D: activity nodes with adprov:role == 'endorser'.
+
+    D ⊆ Activities. This matters for soundness: if an entity or agent could be
+    an endorser, a role mislabelled onto a data node would cut every flow
+    through it.
+    """
     return frozenset(
         n for n, d in G.nodes(data=True)
-        if d.get(ROLE_KEY) == ENDORSER
+        if d.get("node_type") == "activity" and d.get(ROLE_KEY) == ENDORSER
     )
 
 

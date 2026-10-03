@@ -235,3 +235,177 @@ class TestPublicAPI:
             "assert not loaded, loaded\n"
         )
         subprocess.run([sys.executable, "-c", code], check=True)
+
+
+# ---------------------------------------------------------------------------
+# v0.2.1: sections, roles on non-activities, reserved keys, list instances
+# ---------------------------------------------------------------------------
+
+def _flow_in_bundle() -> dict:
+    inner = _doc()
+    del inner["prefix"]
+    return {"prefix": {"adprov": ADPROV_NS}, "bundle": {"adprov:b1": inner}}
+
+
+class TestStrictSections:
+    def test_bundle_rejected_in_strict(self):
+        with pytest.raises(ProvFormatError, match="bundle"):
+            load_prov_graph(_flow_in_bundle(), strict=True)
+
+    def test_bundle_ignored_in_default(self):
+        assert load_prov_graph(_flow_in_bundle()).number_of_nodes() == 0
+
+    @pytest.mark.parametrize("section", [
+        "wasStartedBy", "wasEndedBy", "hadMember", "wasInfluencedBy",
+        "specializationOf", "alternateOf", "wasInvalidatedBy", "mentionOf", "notAProvKey",
+    ])
+    def test_unmodelled_section_rejected_in_strict(self, section):
+        doc = _doc()
+        doc[section] = {"adprov:r": {"prov:trigger": "adprov:e_mail"}}
+        with pytest.raises(ProvFormatError, match=section):
+            load_prov_graph(doc, strict=True)
+        assert f_flow(load_prov_graph(doc))   # default: ignored, as published
+
+    @pytest.mark.parametrize("section", ["wasAttributedTo", "actedOnBehalfOf", "wasAssociatedWith"])
+    def test_non_flow_relations_accepted_in_strict(self, section):
+        doc = _doc()
+        doc[section] = {"adprov:r": {"prov:entity": "adprov:e_mail", "prov:agent": "adprov:ag"}}
+        assert f_flow(load_prov_graph(doc, strict=True))
+
+    def test_strict_section_set_is_exported(self):
+        from flint.layer1_graph.load import STRICT_SECTIONS
+        assert {"prefix", "entity", "used", "wasAssociatedWith"} <= STRICT_SECTIONS
+        assert "bundle" not in STRICT_SECTIONS
+
+
+class TestRoleOnlyOnActivities:
+    def _endorser_entity_on_path(self) -> dict:
+        # e_mail(⊥) → a_read → e_copy → send(S); e_copy wrongly carries role=endorser
+        doc = _doc()
+        doc["entity"]["adprov:e_copy"] = {"adprov:integrity": "trusted", "adprov:role": "endorser"}
+        doc["used"] = {
+            "adprov:u0": {"prov:activity": "adprov:a_read", "prov:entity": "adprov:e_mail"},
+            "adprov:u1": {"prov:activity": "adprov:a_send", "prov:entity": "adprov:e_copy"},
+        }
+        doc["wasGeneratedBy"]["adprov:g2"] = {"prov:entity": "adprov:e_copy", "prov:activity": "adprov:a_read"}
+        return doc
+
+    def test_endorser_role_on_entity_does_not_cut_the_flow(self):
+        assert f_flow(load_prov_graph(self._endorser_entity_on_path()))
+
+    def test_endorser_role_on_entity_rejected_in_strict(self):
+        with pytest.raises(ProvFormatError, match="only meaningful on activities"):
+            load_prov_graph(self._endorser_entity_on_path(), strict=True)
+
+    def test_sink_role_on_entity_is_not_a_sink(self):
+        doc = _doc()
+        doc["activity"]["adprov:a_send"]["adprov:role"] = "neutral"
+        doc["entity"]["adprov:e_query"]["adprov:role"] = "sink"
+        doc["used"]["adprov:u1"]["prov:entity"] = "adprov:e_mail"
+        assert not f_flow(load_prov_graph(doc))
+
+    def test_role_on_agent_rejected_in_strict(self):
+        doc = _doc()
+        doc["agent"]["adprov:ag"]["adprov:role"] = "endorser"
+        with pytest.raises(ProvFormatError, match="agent"):
+            load_prov_graph(doc, strict=True)
+
+
+class TestReservedAndNonStringKeys:
+    def test_node_type_attribute_rejected(self, strict):
+        doc = _doc()
+        doc["entity"]["adprov:e_mail"]["node_type"] = "activity"
+        with pytest.raises(ProvFormatError, match="reserved"):
+            load_prov_graph(doc, strict=strict)
+
+    def test_non_string_attribute_name_rejected(self, strict):
+        doc = _doc()
+        doc["entity"]["adprov:e_mail"][7] = "x"
+        with pytest.raises(ProvFormatError, match="not a string"):
+            load_prov_graph(doc, strict=strict)
+
+    def test_non_string_identifier_rejected(self, strict):
+        doc = _doc()
+        doc["entity"][7] = {"adprov:integrity": "trusted"}
+        with pytest.raises(ProvFormatError, match="not a string"):
+            load_prov_graph(doc, strict=strict)
+
+
+class TestMultiInstanceRecords:
+    def test_relation_list_gives_one_edge_per_instance(self, strict):
+        doc = _doc()
+        doc["used"]["adprov:u1"] = [
+            {"prov:activity": "adprov:a_send", "prov:entity": "adprov:e_mail"},
+            {"prov:activity": "adprov:a_read", "prov:entity": "adprov:e_query"},
+        ]
+        G = load_prov_graph(doc, strict=strict)
+        assert G.has_edge("adprov:e_mail", "adprov:a_send")
+        assert G.has_edge("adprov:e_query", "adprov:a_read")
+        assert f_flow(G)
+
+    def test_node_instances_are_merged(self, strict):
+        doc = _doc()
+        doc["entity"]["adprov:e_mail"] = [
+            {"prov:label": "read_email_output"},
+            {"adprov:integrity": "untrusted"},
+        ]
+        G = load_prov_graph(doc, strict=strict)
+        assert G.nodes["adprov:e_mail"]["prov:label"] == "read_email_output"
+        assert f_flow(G)
+
+    def test_conflicting_labels_rejected_in_strict(self):
+        doc = _doc()
+        doc["entity"]["adprov:e_mail"] = [
+            {"adprov:integrity": "untrusted"},
+            {"adprov:integrity": "trusted"},
+        ]
+        with pytest.raises(ProvFormatError, match="disagree"):
+            load_prov_graph(doc, strict=True)
+
+    def test_equal_labels_across_instances_accepted_in_strict(self):
+        doc = _doc()
+        doc["entity"]["adprov:e_mail"] = [
+            {"adprov:integrity": "untrusted"},
+            {"adprov:integrity": {"$": "untrusted", "type": "xsd:string"}},
+        ]
+        assert f_flow(load_prov_graph(doc, strict=True))
+
+    @pytest.mark.parametrize("bad", [[], [1], [{"prov:activity": "adprov:a_send"}, "x"]])
+    def test_malformed_lists_rejected(self, strict, bad):
+        doc = _doc()
+        doc["used"]["adprov:u1"] = bad
+        with pytest.raises(ProvFormatError):
+            load_prov_graph(doc, strict=strict)
+
+
+class TestOptionalProvFields:
+    @pytest.mark.parametrize("rel,field", [("used", "prov:entity"), ("wasGeneratedBy", "prov:activity")])
+    def test_omitted_optional_field_explains_itself(self, strict, rel, field):
+        doc = _doc()
+        rid = next(iter(doc[rel]))
+        del doc[rel][rid][field]
+        with pytest.raises(ProvFormatError, match="unidentified"):
+            load_prov_graph(doc, strict=strict)
+
+
+class TestFileEncoding:
+    def test_utf8_file_loads_under_a_non_utf8_locale(self, tmp_path):
+        import json
+        doc = _doc()
+        doc["entity"]["adprov:e_mail"]["prov:label"] = "Résumé — Zoë"
+        p = tmp_path / "trace.json"
+        p.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+        code = (
+            "import locale, sys\n"
+            "from flint import load_prov_graph_from_file, f_flow\n"
+            "enc = locale.getpreferredencoding(False).lower().replace('-', '')\n"
+            "if enc == 'utf8': sys.exit(3)\n"
+            f"G = load_prov_graph_from_file({str(p)!r})\n"
+            "assert G.nodes['adprov:e_mail']['prov:label'] == 'Résumé — Zoë'\n"
+            "assert f_flow(G)\n"
+        )
+        env = {"LC_ALL": "C", "LANG": "C", "PYTHONCOERCECLOCALE": "0", "PYTHONUTF8": "0"}
+        r = subprocess.run([sys.executable, "-X", "utf8=0", "-c", code], env=env, capture_output=True, text=True)
+        if r.returncode == 3:
+            pytest.skip("cannot force a non-UTF-8 locale on this platform")
+        assert r.returncode == 0, r.stderr

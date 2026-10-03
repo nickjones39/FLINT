@@ -24,6 +24,19 @@ from flint.layer2_detectors.f_emb import MAX_CANONICAL_OUT
 from flint.spec import ENDORSER, INTEGRITY_KEY, NEUTRAL, ROLE_KEY, TRUSTED, UNTRUSTED
 
 
+def _fresh_id(H: nx.DiGraph, base: str) -> str:
+    """``base``, or ``base`` plus a suffix if the graph already has that node.
+
+    Adding an inserted node under an existing id would silently merge the two
+    and rewrite the original node's attributes.
+    """
+    node_id, k = base, 0
+    while node_id in H:
+        k += 1
+        node_id = f"{base}~{k}"
+    return node_id
+
+
 def structural_mimicry(G: nx.DiGraph) -> nx.DiGraph:
     """Push every ⊥ entity's used-out degree above MAX_CANONICAL_OUT.
 
@@ -45,7 +58,7 @@ def structural_mimicry(G: nx.DiGraph) -> nx.DiGraph:
             continue
         n_decoys = MAX_CANONICAL_OUT + 1 - current_used
         for _ in range(n_decoys):
-            decoy_id = f"_decoy_neutral_{decoy_idx}"
+            decoy_id = _fresh_id(H, f"_decoy_neutral_{decoy_idx}")
             decoy_idx += 1
             H.add_node(decoy_id, node_type="activity", **{ROLE_KEY: NEUTRAL})
             H.add_edge(src, decoy_id, relation="used")
@@ -74,7 +87,7 @@ def structural_mimicry_budget(G: nx.DiGraph, n_decoys: int) -> nx.DiGraph:
         if current_used == 0:
             continue
         for _ in range(n_decoys):
-            decoy_id = f"_decoy_budget_{decoy_idx}"
+            decoy_id = _fresh_id(H, f"_decoy_budget_{decoy_idx}")
             decoy_idx += 1
             H.add_node(decoy_id, node_type="activity", **{ROLE_KEY: NEUTRAL})
             H.add_edge(src, decoy_id, relation="used")
@@ -94,7 +107,7 @@ def trust_attribution_endorser(G: nx.DiGraph) -> nx.DiGraph:
     H = G.copy()
     sinks = get_sinks(H)
     sources = set(get_untrusted_sources(H))
-    endorser_id = "_adversary_endorser"
+    endorser_id = _fresh_id(H, "_adversary_endorser")
     H.add_node(endorser_id, node_type="activity", **{ROLE_KEY: ENDORSER})
 
     to_remove = [

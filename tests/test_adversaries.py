@@ -9,12 +9,24 @@ All tests use synthetic PROV-JSON traces; no model calls required.
 """
 from __future__ import annotations
 
-from flint.layer1_graph.flow import get_untrusted_sources
+import networkx as nx
+import pytest
+
+from flint.layer1_graph.flow import get_endorsers, get_untrusted_sources
 from flint.layer1_graph.load import load_prov_graph
-from flint.layer2_detectors.f_emb import _INJECTION_HASH, _structural_node_hash, f_emb
+from flint.layer2_detectors.f_emb import (
+    _INJECTION_HASH,
+    _structural_node_hash,
+    build_benign_profile,
+    f_emb,
+    f_emb_novelty,
+    f_emb_novelty_score,
+    f_emb_score,
+)
 from flint.layer2_detectors.f_flow import f_flow
 from flint.layer3_orchestration.adversary import (
     structural_mimicry,
+    structural_mimicry_budget,
     trust_attribution_endorser,
     trust_attribution_relabel,
 )
@@ -208,3 +220,68 @@ class TestP3TrustAttributionEvadesFFlow:
         G = load_prov_graph(_injection_doc())
         H = trust_attribution_relabel(G)
         assert len(get_untrusted_sources(H)) == 0
+
+
+# ---------------------------------------------------------------------------
+# Inserted nodes never merge into existing ones; the budget variant (v0.2.1)
+# ---------------------------------------------------------------------------
+
+class TestInsertedIdsAreFresh:
+    def test_endorser_id_collision_leaves_existing_node_intact(self):
+        G = load_prov_graph(_injection_doc())
+        G.add_node("_adversary_endorser", node_type="entity", **{"adprov:integrity": "trusted"})
+        H = trust_attribution_endorser(G)
+        assert H.nodes["_adversary_endorser"] == {"node_type": "entity", "adprov:integrity": "trusted"}
+        assert len(get_endorsers(H)) == 1
+        assert not f_flow(H)
+
+    def test_decoy_id_collision_leaves_existing_node_intact(self):
+        G = load_prov_graph(_injection_doc())
+        G.add_node("_decoy_neutral_0", node_type="entity", **{"adprov:integrity": "untrusted"})
+        H = structural_mimicry(G)
+        assert H.nodes["_decoy_neutral_0"]["node_type"] == "entity"
+        assert not f_emb(H)
+        assert f_flow(H)
+
+    def test_ids_unchanged_when_nothing_collides(self):
+        H = structural_mimicry(load_prov_graph(_injection_doc()))
+        assert {n for n in H if n.startswith("_decoy")} == {
+            f"_decoy_neutral_{i}" for i in range(3)
+        }
+
+
+class TestMimicryBudget:
+    def test_zero_budget_is_an_identity_copy(self):
+        G = load_prov_graph(_injection_doc())
+        H = structural_mimicry_budget(G, 0)
+        assert H is not G
+        assert nx.utils.graphs_equal(G, H)
+
+    @pytest.mark.parametrize("k", [1, 2, 3, 5])
+    def test_f_flow_unaffected_at_any_budget(self, k):
+        assert f_flow(structural_mimicry_budget(load_prov_graph(_injection_doc()), k))
+
+    def test_budget_three_evades_f_emb(self):
+        assert not f_emb(structural_mimicry_budget(load_prov_graph(_injection_doc()), 3))
+
+
+class TestFEmbScores:
+    def test_score_bounds(self):
+        G = load_prov_graph(_injection_doc())
+        assert 0.0 < f_emb_score(G) <= 1.0
+        assert f_emb_score(structural_mimicry(G)) == 0.0
+        assert f_emb_score(nx.DiGraph()) == 0.0
+
+    def test_novelty_against_own_profile_is_zero(self):
+        G = load_prov_graph(_injection_doc())
+        profile = build_benign_profile([G])
+        assert not f_emb_novelty(G, profile)
+        assert f_emb_novelty_score(G, profile) == 0.0
+
+    def test_mimicry_is_novel_against_unattacked_profile(self):
+        G = load_prov_graph(_injection_doc())
+        profile = build_benign_profile([G])
+        H = structural_mimicry(G)
+        assert f_emb_novelty(H, profile)
+        assert f_emb_novelty_score(H, profile) > 0.0
+        assert f_emb_novelty_score(nx.DiGraph(), profile) == 0.0

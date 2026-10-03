@@ -100,12 +100,32 @@ class SweepConfig:
     detectors: list[str]    = field(default_factory=lambda: ["f_flow", "f_emb"])
     adversaries: list[str]  = field(default_factory=lambda: ["none"])
 
+    def __post_init__(self) -> None:
+        # An unknown name must fail loudly: a misspelt adversary used to run as
+        # "none" and report un-attacked results under the misspelt label.
+        for kind, names, registry in (
+            ("detector", self.detectors, _DETECTOR_FNS),
+            ("adversary", self.adversaries, _ADVERSARY_FNS),
+        ):
+            if isinstance(names, str) or not isinstance(names, list):
+                raise ValueError(f"{kind}s must be a list of names, got {names!r}")
+            unknown = [n for n in names if n not in registry]
+            if unknown:
+                raise ValueError(f"unknown {kind}(s) {unknown}; known: {sorted(registry)}")
+
     @classmethod
     def from_yaml(cls, path: Path | str) -> SweepConfig:
-        with open(path) as fh:
+        with open(path, encoding="utf-8") as fh:
             data = yaml.safe_load(fh)
+        if data is None:
+            data = {}
+        if not isinstance(data, dict):
+            raise ValueError(f"{path}: a sweep config must be a mapping, got {type(data).__name__}")
         known = set(cls.__dataclass_fields__)
-        return cls(**{k: v for k, v in data.items() if k in known})
+        unknown = sorted(set(data) - known)
+        if unknown:
+            raise ValueError(f"{path}: unknown key(s) {unknown}; known: {sorted(known)}")
+        return cls(**data)
 
 
 
@@ -248,7 +268,7 @@ def load_traces_from_dir(trace_dir: Path) -> list[Trace]:
     if json_files:
         # Flat layout
         for p in json_files:
-            doc = json.loads(p.read_text())
+            doc = json.loads(p.read_text(encoding="utf-8"))
             ground_truth = "injection" in p.stem.lower()
             attack_type = "benign" if not ground_truth else "unknown"
             traces.append(Trace(
@@ -262,7 +282,7 @@ def load_traces_from_dir(trace_dir: Path) -> list[Trace]:
         for subdir in sorted(p for p in trace_dir.iterdir() if p.is_dir()):
             attack_type = subdir.name  # "benign", "direct", "injecagent", ...
             for p in _prov_json_files(subdir):
-                doc = json.loads(p.read_text())
+                doc = json.loads(p.read_text(encoding="utf-8"))
                 ground_truth = "injection" in p.stem.lower()
                 # The same (suite, user_task, injection_task) stem is reused across
                 # attack subdirs (direct/important_instructions/injecagent), so the

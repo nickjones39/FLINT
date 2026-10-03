@@ -260,3 +260,103 @@ class TestComputeMetrics:
         loaded = pd.read_parquet(p)
         assert len(loaded) == len(df)
         assert set(loaded.columns) == set(df.columns)
+
+
+# ---------------------------------------------------------------------------
+# Config validation, trace loading, CLI, metrics edge cases (v0.2.1)
+# ---------------------------------------------------------------------------
+
+import json  # noqa: E402
+import subprocess  # noqa: E402
+import sys  # noqa: E402
+
+from flint.layer3_orchestration.runner import load_traces_from_dir  # noqa: E402
+
+
+class TestSweepConfigValidation:
+    @pytest.mark.parametrize("field,value", [
+        ("adversaries", ["trust_attribution_relable"]),
+        ("detectors", ["f_flw"]),
+    ])
+    def test_unknown_name_raises(self, field, value):
+        with pytest.raises(ValueError, match="unknown"):
+            SweepConfig(**{field: value})
+
+    def test_bare_string_raises(self):
+        with pytest.raises(ValueError, match="list"):
+            SweepConfig(adversaries="none")  # type: ignore[arg-type]
+
+    def test_empty_yaml_gives_defaults(self, tmp_path: Path):
+        p = tmp_path / "cfg.yaml"
+        p.write_text("")
+        assert SweepConfig.from_yaml(p) == SweepConfig()
+
+    @pytest.mark.parametrize("text,match", [
+        ("- f_flow\n", "mapping"),
+        ("detectors: [f_flow]\ncompressions: [kappa_none]\n", "unknown key"),
+        ("adversaries: [nope]\n", "unknown adversary"),
+    ])
+    def test_bad_yaml_raises(self, tmp_path: Path, text, match):
+        p = tmp_path / "cfg.yaml"
+        p.write_text(text)
+        with pytest.raises(ValueError, match=match):
+            SweepConfig.from_yaml(p)
+
+
+def _write(p: Path, doc: dict) -> None:
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(doc), encoding="utf-8")
+
+
+class TestLoadTracesFromDir:
+    def test_subdirectory_layout(self, tmp_path: Path):
+        _write(tmp_path / "benign" / "banking_user_task_0_benign.json", _benign_doc())
+        _write(tmp_path / "direct" / "workspace_user_task_13_injection_task_1.json", _injection_doc())
+        _write(tmp_path / "direct" / "workspace_user_task_13_injection_task_1.transcript.json", {})
+        (tmp_path / "direct" / "._workspace_user_task_13_injection_task_1.json").write_bytes(b"\x00\x05")
+        traces = load_traces_from_dir(tmp_path)
+        assert [(t.trace_id, t.ground_truth, t.attack_type, t.suite, t.task_subtype) for t in traces] == [
+            ("benign/banking_user_task_0_benign", False, "benign", "banking", "write_involving"),
+            ("direct/workspace_user_task_13_injection_task_1", True, "direct", "workspace", "injection"),
+        ]
+
+    def test_flat_layout(self, tmp_path: Path):
+        _write(tmp_path / "user_task_1_benign.json", _benign_doc())
+        _write(tmp_path / "user_task_1_injection_task_0.json", _injection_doc())
+        traces = load_traces_from_dir(tmp_path)
+        assert [(t.trace_id, t.attack_type, t.task_subtype) for t in traces] == [
+            ("user_task_1_benign", "benign", "read_only"),
+            ("user_task_1_injection_task_0", "unknown", "injection"),
+        ]
+
+
+class TestCLI:
+    def test_cli_writes_sweep_and_metrics(self, tmp_path: Path):
+        _write(tmp_path / "traces" / "benign" / "user_task_1_benign.json", _benign_doc())
+        _write(tmp_path / "traces" / "direct" / "user_task_1_injection_task_0.json", _injection_doc())
+        cfg = tmp_path / "cfg.yaml"
+        cfg.write_text("detectors: [f_flow]\nadversaries: [none, trust_attribution_relabel]\n")
+        out, metrics = tmp_path / "o" / "sweep.parquet", tmp_path / "o" / "metrics.parquet"
+        r = subprocess.run(
+            [sys.executable, "-m", "flint.layer3_orchestration.runner", "--config", str(cfg),
+             "--traces", str(tmp_path / "traces"), "--out", str(out), "--metrics-out", str(metrics)],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0, r.stderr
+        m = pd.read_parquet(metrics).set_index("adversary")
+        assert m.loc["none", "tpr"] == 1.0
+        assert m.loc["trust_attribution_relabel", "tpr"] == 0.0
+        assert len(pd.read_parquet(out)) == 4
+
+
+class TestComputeMetricsEdgeCases:
+    def test_object_dtype_is_rejected(self):
+        df = run_sweep(_make_traces(), _full_config())
+        df["detected"] = df["detected"].astype(object)
+        with pytest.raises(ValueError, match="bool dtype"):
+            compute_metrics(df)
+
+    def test_empty_results(self):
+        m = compute_metrics(pd.DataFrame())
+        assert m.empty
+        assert list(m.columns)[:3] == ["detector", "compression", "adversary"]

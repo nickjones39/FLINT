@@ -15,7 +15,7 @@ extra and the PROV renderer the ``[viz]`` extra.
 """
 from __future__ import annotations
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 from flint.errors import ProvFormatError
 from flint.layer1_graph.flow import flow_witnesses
