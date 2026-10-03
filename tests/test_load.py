@@ -401,7 +401,8 @@ class TestFileEncoding:
             "enc = locale.getpreferredencoding(False).lower().replace('-', '')\n"
             "if enc == 'utf8': sys.exit(3)\n"
             f"G = load_prov_graph_from_file({str(p)!r})\n"
-            "assert G.nodes['adprov:e_mail']['prov:label'] == 'Résumé — Zoë'\n"
+            # \\u escapes: the -c source itself must be ASCII under a C locale
+            "assert G.nodes['adprov:e_mail']['prov:label'] == 'R\\u00e9sum\\u00e9 \\u2014 Zo\\u00eb'\n"
             "assert f_flow(G)\n"
         )
         env = {"LC_ALL": "C", "LANG": "C", "PYTHONCOERCECLOCALE": "0", "PYTHONUTF8": "0"}
