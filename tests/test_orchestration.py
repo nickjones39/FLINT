@@ -320,6 +320,36 @@ class TestLoadTracesFromDir:
             ("direct/workspace_user_task_13_injection_task_1", True, "direct", "workspace", "injection"),
         ]
 
+    def test_goal_scope(self):
+        from flint.layer3_orchestration.runner import goal_in_scope
+        assert not goal_in_scope("slack", "injection_task_3")
+        assert not goal_in_scope("travel", "injection_task_6", "v1")
+        assert goal_in_scope("workspace", "injection_task_6")       # sends mail
+        assert goal_in_scope("banking", "injection_task_0", "v1")
+
+    def test_task_split_follows_the_benchmark_ground_truth(self):
+        # The five tasks the old hand-curated list got wrong against AgentDojo
+        # v1.2.2's reference calls (scripts/derive_write_involving.py).
+        from flint.layer3_orchestration.runner import _task_subtype
+        assert [_task_subtype(s, False) for s in (
+            "workspace_user_task_23_benign", "workspace_user_task_39_benign",
+            "banking_user_task_10_benign", "travel_user_task_6_benign",
+            "banking_user_task_9_benign")] == ["read_only"] * 4 + ["write_involving"]
+
+    def test_suffix_decides_ground_truth_not_a_substring(self, tmp_path: Path):
+        # AgentDojo runs its injection tasks as benign user tasks too; the corpus
+        # names those rows <suite>_injection_task_N_benign. They are benign.
+        _write(tmp_path / "benign" / "banking_injection_task_3_benign.json", _benign_doc())
+        _write(tmp_path / "benign" / "banking_user_task_0_benign.json", _benign_doc())
+        _write(tmp_path / "important_instructions" /
+               "banking_user_task_0_x_injectiontask3_injection.json", _injection_doc())
+        truth = {t.trace_id: t.ground_truth for t in load_traces_from_dir(tmp_path)}
+        assert truth == {
+            "benign/banking_injection_task_3_benign": False,
+            "benign/banking_user_task_0_benign": False,
+            "important_instructions/banking_user_task_0_x_injectiontask3_injection": True,
+        }
+
     def test_flat_layout(self, tmp_path: Path):
         _write(tmp_path / "user_task_1_benign.json", _benign_doc())
         _write(tmp_path / "user_task_1_injection_task_0.json", _injection_doc())

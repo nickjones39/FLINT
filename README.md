@@ -197,7 +197,7 @@ uv add --editable ../flint-framework                                     # a loc
 
 `pip install "flint-prov @ git+https://github.com/nickjones39/FLINT"` works the same
 way if you do not use uv. Pin a release tag in production, e.g.
-`flint-prov @ git+https://github.com/nickjones39/FLINT@v0.3.1`.
+`flint-prov @ git+https://github.com/nickjones39/FLINT@v0.3.2`.
 
 ---
 
