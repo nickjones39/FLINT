@@ -16,7 +16,7 @@ extra, the PROV renderer the ``[viz]`` extra, and the Ed25519 keys in
 """
 from __future__ import annotations
 
-__version__ = "0.3.0.dev0"
+__version__ = "0.3.0"
 
 from flint.attribution import (
     AttributionResult,

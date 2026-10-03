@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (0.3.0)
+## 0.3.0 — 2026-10-03
 
 Verifiable trust attribution: the manuscript's §V, Definitions 5 and 6. Nothing
 existing changes: `f_flow`, the loader and the adversaries behave exactly as in
@@ -40,7 +40,7 @@ existing changes: `f_flow`, the loader and the adversaries behave exactly as in
   undefended rate on every backend (e.g. DeepSeek 58.9%). Signing and verification
   take about 0.12 ms and 0.13 ms per trace.
 
-## 0.2.1 — 2026-10-03
+## 0.2.1 — 2026-10-03 (tagged, not released)
 
 It fixes what three rounds of linting, fuzzing, property-based testing and code
 review of 0.2.0 found. Two of those issues let a flow go undetected even under
