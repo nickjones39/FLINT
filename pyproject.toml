@@ -1,38 +1,130 @@
 [project]
-name = "flint"
-version = "0.1.0"
+# Distribution name only: the import name stays `flint`. Plain "flint" is taken on
+# PyPI, and python-flint also imports as `flint`, so do not install both.
+name = "flint-prov"
+dynamic = ["version"]     # single source: flint.__version__
 description = "FLINT: Flow-INtegrity Tracking — flow-typed provenance security for LLM agents"
 readme = "README.md"
 license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Nicholas Jones" }]
 requires-python = ">=3.12"
+keywords = ["provenance", "W3C PROV", "prompt injection", "LLM agents", "information flow"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security",
+    "Typing :: Typed",
+]
+# The detector needs only networkx. Everything else is an extra, so an application
+# that pins FLINT for detection does not inherit pandas, Graphviz bindings or torch.
 dependencies = [
-    "networkx>=3.3",          # typed provenance graph (Layer 1)
-    "pyyaml>=6.0",            # sweep config
-    "pandas>=2.2",            # metrics / parquet tables
-    "pyarrow>=16.0",          # parquet sink for the Layer-3 sweep
-    "prov>=2.1",              # PROV model — example-graph render (Layer 1 visualize.py)
-    "pydot>=3.0",             # render PROV graphs to PNG/SVG (needs the graphviz `dot` binary)
-    "matplotlib>=3.8",        # figures
-    "numpy>=1.26",            # figures + numeric helpers
+    "networkx>=3.3",          # typed provenance graph + f_flow
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "ruff>=0.6"]
+# Layer-3 detector x adversary sweep (runner.py, metrics.py).
+sweep = [
+    "pyyaml>=6.0",            # sweep config
+    "pandas>=2.2",            # metrics tables
+    "pyarrow>=16.0",          # parquet sink
+]
+# PROV graph rendering (layer1_graph/visualize.py). Also needs the Graphviz `dot`
+# system binary (e.g. `brew install graphviz` / `apt-get install graphviz`).
+viz = [
+    "prov>=2.1",
+    "pydot>=3.0",
+]
 # The learned structural baselines in experiments/ (GNN-AE, GCN-CLF, WL-IF, WL-LR)
-# and the white-box adaptive mimicry. Not needed to run the f_flow detector itself.
-experiments = ["torch>=2.2", "scikit-learn>=1.4"]
+# and the white-box adaptive mimicry. They load traces through the sweep runner.
+experiments = [
+    "pyyaml>=6.0",
+    "pandas>=2.2",
+    "pyarrow>=16.0",
+    "numpy>=1.26",
+    "torch>=2.2",
+    "scikit-learn>=1.4",
+]
+all = [
+    "pyyaml>=6.0",
+    "pandas>=2.2",
+    "pyarrow>=16.0",
+    "prov>=2.1",
+    "pydot>=3.0",
+    "numpy>=1.26",
+    "torch>=2.2",
+    "scikit-learn>=1.4",
+]
 
-# Note: rendering PROV graphs also needs the Graphviz `dot` system binary
-# (e.g. `brew install graphviz` / `apt-get install graphviz`), which pip cannot provide.
+[project.urls]
+Repository = "https://github.com/nickjones39/FLINT"
+Changelog = "https://github.com/nickjones39/FLINT/blob/main/CHANGELOG.md"
+"Input format" = "https://github.com/nickjones39/FLINT/blob/main/docs/input-format.md"
+Corpus = "https://doi.org/10.5281/zenodo.21052314"
+
+# Development tools: a PEP 735 group, so they are not published as an extra.
+# `uv sync` installs it by default.
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "types-networkx",
+]
+
+# On Linux, take torch from the CPU-only index: the default PyPI wheel pulls
+# several GB of CUDA libraries that the learned baselines do not need.
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools.dynamic]
+version = { attr = "flint.__version__" }
+
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["flint*", "experiments*"]
+# experiments/ is run in place (`python experiments/<script>.py`), not installed:
+# shipping it would put a generic top-level `experiments` package on sys.path.
+include = ["flint*"]
+
+[tool.setuptools.package-data]
+flint = ["py.typed"]
 
 [tool.ruff]
 line-length = 110
 target-version = "py312"
+
+[tool.ruff.lint]
+# Pinned so a ruff upgrade cannot change what CI enforces.
+select = ["E", "F", "I", "UP", "RUF"]
+ignore = [
+    "E501",     # long lines are wrapped by hand
+    "RUF001", "RUF002", "RUF003",   # ⊥ ⊤ ⇝ λ in docstrings and comments are intentional
+]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["flint"]
+disallow_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+
+[[tool.mypy.overrides]]
+# Optional extras without bundled type information.
+module = ["pandas", "pandas.*", "yaml", "prov", "prov.*", "pydot", "pyarrow", "pyarrow.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# pydot generates its set_*/write_* methods at runtime, so they are invisible to mypy.
+module = ["flint.layer1_graph.visualize"]
+disable_error_code = ["attr-defined"]

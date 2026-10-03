@@ -71,6 +71,9 @@ are in the manuscript.
 
 ```
 flint/
+  __init__.py            # the versioned public API (flint.__all__)
+  spec.py                # the input vocabulary (adprov: labels) as constants
+  errors.py              # ProvFormatError
   paths.py               # corpus_root()/output_root() + corpus file iterators —
                          #   override via FLINT_CORPUS_ROOT / FLINT_OUTPUT_ROOT
   layer1_graph/          # load.py (PROV-JSON → typed graph) · flow.py (flow relation,
@@ -78,12 +81,15 @@ flint/
                          #   (Graphviz, W3C PROV visual notation)
   layer2_detectors/      # f_flow.py (D-avoiding reachability + witness API) ·
                          #   f_emb.py (WL neighbourhood hash + score/novelty variants)
-layer3_orchestration/  # runner.py (detector × adversary sweep, CLI) · adversary.py ·
-                       #   metrics.py
-experiments/           # the learned structural baselines and the white-box adaptive
-                       #   mimicry — see "Learned baselines" below
-configs/sweep.yaml        # example detector × adversary sweep config
-tests/                    # 68-test pytest suite — no corpus/model required
+  layer3_orchestration/  # runner.py (detector × adversary sweep, CLI) · adversary.py ·
+                         #   metrics.py
+experiments/             # the learned structural baselines and the white-box adaptive
+                         #   mimicry — run in place, not installed; see "Learned baselines"
+configs/sweep.yaml       # example detector × adversary sweep config
+docs/input-format.md     # the PROV-JSON input specification
+tests/                   # pytest suite — no corpus/model required
+pyproject.toml, uv.lock  # dependencies and extras; the lockfile CI installs from
+CHANGELOG.md
 ```
 
 ---
@@ -104,8 +110,8 @@ trust.
 These need PyTorch and scikit-learn, which the detector itself does not:
 
 ```bash
-pip install -e ".[experiments]"
-python experiments/learned_baseline.py --corpus <root>/<model>/prov
+uv sync --extra experiments
+uv run python experiments/learned_baseline.py --corpus <root>/<model>/prov
 ```
 
 Each script writes the result JSON the paper's numbers are generated from.
@@ -138,22 +144,75 @@ hyperparameter search, so the constants are the defaults the first run used.
 
 ## Install
 
-Requires Python ≥ 3.12.
+Requires Python ≥ 3.12. The distribution is **`flint-prov`**, and it imports as
+**`flint`**. (`flint` on PyPI is an unrelated project, and `python-flint` also
+imports as `flint`, so do not install either alongside it.) The detector depends only
+on networkx; everything else is an extra.
+
+| Extra | Adds | For |
+|---|---|---|
+| *(none)* | networkx | `load_prov_graph`, `f_flow`, the adversaries |
+| `sweep` | pyyaml, pandas, pyarrow | the detector × adversary sweep (`runner.py`) |
+| `viz` | prov, pydot | PROV rendering (`visualize.py`); also needs the Graphviz `dot` binary |
+| `experiments` | numpy, torch, scikit-learn (+ `sweep`) | the learned baselines in `experiments/` |
+| `all` | all of the above | |
+
+### Developing (uv)
+
+The repo is managed with [uv](https://docs.astral.sh/uv/). `uv.lock` pins every
+dependency, and the `dev` group (pytest, ruff, mypy) is installed by default.
 
 ```bash
-python -m venv .venv && source .venv/bin/activate   # or conda create -n flint python=3.12
-pip install -e .
+uv sync                     # core + dev tools
+uv sync --all-extras        # everything (on Linux, torch comes from the CPU-only index)
+uv run pytest -q            # no corpus or model needed
+uv run ruff check flint tests
+uv run mypy
 ```
 
-Verify the install (no corpus or model needed):
+On a core-only sync the sweep tests skip, and the rest still run. CI
+(`.github/workflows/ci.yml`) runs both configurations: a core-only job on Python
+3.12 and 3.13, and an all-extras job that also lints, type-checks and builds the
+distribution.
+
+### Using it from another project
 
 ```bash
-pip install -e ".[dev]"
-pytest tests/ -q
+uv add "flint-prov @ git+https://github.com/nickjones39/FLINT"            # core
+uv add "flint-prov[sweep] @ git+https://github.com/nickjones39/FLINT"     # + sweep
+uv add --editable ../flint-framework                                     # a local checkout
 ```
 
-Rendering PROV graphs with `visualize.py` additionally needs the Graphviz `dot`
-binary on PATH; detection and the sweep do not.
+`pip install "flint-prov @ git+https://github.com/nickjones39/FLINT"` works the same
+way if you do not use uv. Pin a tag (`…/FLINT@v0.2.0`) once one is released.
+
+---
+
+## Using FLINT in an application
+
+```python
+import flint
+
+G = flint.load_prov_graph(doc, strict=True)   # doc: a PROV-JSON dict
+result = flint.f_flow_detailed(G)
+if result:
+    for source, sink, path in result.witnesses:
+        ...   # block, or ask the user
+```
+
+- **Write the labels FLINT reads.** Every entity needs `adprov:integrity` and every
+  activity `adprov:role`. The vocabulary is specified in
+  [`docs/input-format.md`](docs/input-format.md).
+- **Load with `strict=True` in deployment.** Strict mode fails closed: an entity
+  with a missing or unrecognised integrity label is treated as untrusted, and a
+  document with an unlabelled activity, a dangling reference or a conflicting
+  `adprov` prefix raises `flint.ProvFormatError`. The default mode
+  (`strict=False`) is the one the published results use; on well-formed input the
+  two give identical graphs.
+- **Pin a version.** Only the names in `flint.__all__` form the versioned API.
+- **Endorsements are not yet authenticated.** A forged `endorser` role or a relabelled
+  entity evades `f_flow` by design. That is the trust attack the theory isolates.
+  Signed labels and capability-bound endorsements are planned for v0.3.0.
 
 ---
 
@@ -161,16 +220,16 @@ binary on PATH; detection and the sweep do not.
 
 FLINT expects a corpus of PROV-JSON traces laid out as `<root>/<model>/prov/<attack>/*.json`
 (see [`flint/paths.py`](flint/paths.py)), with two PROV extension attributes baked in at
-capture time:
+capture time (full specification: [`docs/input-format.md`](docs/input-format.md)):
 
 - entity nodes: `adprov:integrity` ∈ `{trusted, untrusted}`
 - activity nodes: `adprov:role` ∈ `{neutral, sink, endorser}`
 
-Point FLINT at a corpus and run the detector × adversary sweep:
+Point FLINT at a corpus and run the detector × adversary sweep (needs `[sweep]`):
 
 ```bash
 export FLINT_CORPUS_ROOT=/path/to/corpus-prov   # a Zenodo download or your own capture
-python -m flint.layer3_orchestration.runner \
+uv run python -m flint.layer3_orchestration.runner \
     --config configs/sweep.yaml \
     --traces "$FLINT_CORPUS_ROOT/<model>/prov" \
     --out    results/sweep.parquet \

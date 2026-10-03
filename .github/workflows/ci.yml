@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  # The detector must work with networkx alone: an application pinning FLINT for
+  # detection should not inherit the sweep, rendering or learned-baseline stacks.
+  core:
+    name: core only (py${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          python-version: ${{ matrix.python }}
+          enable-cache: true
+      - run: uv sync --locked
+      - name: Import needs only networkx
+        run: >
+          uv run python -c "import sys, flint;
+          heavy = {'pandas','pyarrow','yaml','prov','pydot','numpy','torch','sklearn'};
+          loaded = heavy & {m.split('.')[0] for m in sys.modules};
+          assert not loaded, loaded; print('flint', flint.__version__)"
+      - run: uv run pytest -q -rs
+
+  full:
+    name: all extras
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: sudo apt-get install -y --no-install-recommends graphviz
+      - run: uv sync --locked --all-extras
+      - run: uv run ruff check flint tests
+      - run: uv run mypy
+      - run: uv run pytest -q
+      - name: Optional modules import
+        run: uv run python -c "import flint.layer1_graph.visualize, flint.layer3_orchestration.runner, torch, sklearn"
+      - name: Build the distribution
+        run: uv build
