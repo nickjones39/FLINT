@@ -285,3 +285,21 @@ class TestFEmbScores:
         assert f_emb_novelty(H, profile)
         assert f_emb_novelty_score(H, profile) > 0.0
         assert f_emb_novelty_score(nx.DiGraph(), profile) == 0.0
+
+
+class TestFEmbNonStringFeatures:
+    def test_none_node_type_and_relation_do_not_crash(self):
+        G = nx.DiGraph()
+        G.add_node("e", node_type="entity")
+        G.add_node("a", node_type=None)
+        G.add_node("b", node_type="activity")
+        G.add_edge("a", "e", relation="wasGeneratedBy")
+        G.add_edge("b", "e", relation=None)
+        assert f_emb(G) is False
+        assert _structural_node_hash(G, "e") == _structural_node_hash(
+            nx.relabel_nodes(G, {"a": "a2"}), "e")
+
+    def test_string_features_hash_as_before(self):
+        # the k=1 canonical shape must still produce the published constant
+        G = load_prov_graph(_injection_doc())
+        assert _INJECTION_HASH in {_structural_node_hash(G, n) for n in G}

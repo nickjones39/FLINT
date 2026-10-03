@@ -2,14 +2,35 @@
 
 ## 0.2.1 — 2026-10-03
 
-The first published release. It fixes what a full lint, fuzz and code review of
-0.2.0 found. Two issues let a flow go undetected even under `strict=True`. Detection
-results are unchanged: on the full AgentDojo-PROV corpus (v2.3, six backends, 17,664
+It fixes what two rounds of linting, fuzzing, property-based testing and code
+review of 0.2.0 found. Two of those issues let a flow go undetected even under
+`strict=True`. Detection results are unchanged: on the full AgentDojo-PROV corpus (v2.3, six backends, 17,664
 traces), the default loader's graphs, witnesses, sweep rows and metrics are again
 byte-identical to 0.1.0, strict mode gives the same graphs, and PROV renders are
 byte-identical.
 
 ### Fixed
+- **f_flow is linear in graph size, however many untrusted sources there are.**
+  `check_flow` ran one search per source, so it was quadratic when every step reads
+  external data and nothing reaches a sink, which is the common benign case: 3.2 s at
+  8,000 nodes. It is now a single search seeded with all sources, taking milliseconds
+  at that size. `flow_witnesses` used one search per (source, sink) pair (11 s at
+  4,000 nodes) and now uses one per source, with paths and order identical to the old
+  search's. That was checked on every corpus trace and by property tests against the
+  old code kept as a reference. Latency on the single-source scaling benchmark is
+  unchanged.
+- **The sweep's trace loader refuses JSON that is not a PROV trace.** It also refuses
+  a directory holding both top-level traces and attack subdirectories. Before, pointing
+  `--traces` at a model directory scored `manifest.json` as a benign trace and
+  silently ignored the real traces.
+- The sweep CLI exits non-zero when it finds no traces. Before, it exited 0 and left a
+  previous run's outputs in place, looking current. A missing directory gives a clear
+  `NotADirectoryError`.
+- The build requires `setuptools>=77`, the first release that accepts the PEP 639
+  `license = "MIT"` form. The declared `>=68` could not build the package. CI now also
+  builds against the minimum.
+- `f_emb`'s structural hash no longer crashes on a non-string `node_type` or relation
+  in a hand-built graph. Every string feature hashes exactly as before.
 - **Sinks and endorsers must be activities** (`get_sinks`, `get_endorsers`). Before
   this, an entity or agent labelled `adprov:role: endorser` acted as an endorsement
   and cut every flow through it, in both modes. Strict mode now rejects a role on a
@@ -43,7 +64,13 @@ byte-identical.
   the `prov` library writes them. Strict mode rejects instances whose labels disagree.
 - A clearer error for `used` without `prov:entity` and `wasGeneratedBy` without
   `prov:activity`, which PROV allows but FLINT cannot place.
-- 83 tests (206 in total; coverage 63% → 93%): sections and roles, multi-instance
+- Property-based tests (Hypothesis, now in the `dev` group) for: the new search
+  against the old per-pair search; shortest and complete witnesses; strict mode never
+  detecting less than default; strict graphs being fully labelled; invariance under
+  renaming, reordering and unrelated additions; the P1/P3 adversary invariants and
+  input immutability; arbitrary JSON raising only `ProvFormatError`; and many-source
+  scaling.
+- 103 tests (226 in total; coverage 63% → 93%): sections and roles, multi-instance
   records, a forced non-UTF-8 locale, the trace loader and CLI, config validation,
   `paths`, `visualize`, the budgeted mimicry and the `f_emb` score and novelty
   functions.

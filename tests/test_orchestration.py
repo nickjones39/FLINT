@@ -360,3 +360,40 @@ class TestComputeMetricsEdgeCases:
         m = compute_metrics(pd.DataFrame())
         assert m.empty
         assert list(m.columns)[:3] == ["detector", "compression", "adversary"]
+
+
+class TestTraceDirGuards:
+    def test_non_prov_json_is_rejected(self, tmp_path: Path):
+        # --traces pointed at a model dir: manifest.json beside prov/
+        _write(tmp_path / "manifest.json", {"dataset": "AgentDojo-PROV", "corpus_version": "2.3"})
+        _write(tmp_path / "prov" / "direct" / "user_task_1_injection_task_0.json", _injection_doc())
+        with pytest.raises(ValueError, match="not a PROV-JSON trace"):
+            load_traces_from_dir(tmp_path)
+
+    def test_mixed_layout_is_rejected(self, tmp_path: Path):
+        _write(tmp_path / "user_task_1_benign.json", _benign_doc())
+        _write(tmp_path / "direct" / "user_task_1_injection_task_0.json", _injection_doc())
+        with pytest.raises(ValueError, match="one layout"):
+            load_traces_from_dir(tmp_path)
+
+    def test_missing_directory(self, tmp_path: Path):
+        with pytest.raises(NotADirectoryError):
+            load_traces_from_dir(tmp_path / "nope")
+
+    def test_subdirs_without_traces_are_not_mixed(self, tmp_path: Path):
+        _write(tmp_path / "user_task_1_benign.json", _benign_doc())
+        (tmp_path / "figures").mkdir()
+        assert len(load_traces_from_dir(tmp_path)) == 1
+
+    def test_cli_fails_on_empty_trace_dir_and_keeps_no_stale_success(self, tmp_path: Path):
+        (tmp_path / "empty").mkdir()
+        cfg = tmp_path / "cfg.yaml"
+        cfg.write_text("detectors: [f_flow]\n")
+        r = subprocess.run(
+            [sys.executable, "-m", "flint.layer3_orchestration.runner", "--config", str(cfg),
+             "--traces", str(tmp_path / "empty"), "--out", str(tmp_path / "s.parquet"),
+             "--metrics-out", str(tmp_path / "m.parquet")],
+            capture_output=True, text=True,
+        )
+        assert r.returncode != 0
+        assert "No trace files found" in r.stderr

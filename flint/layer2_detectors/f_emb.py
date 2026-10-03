@@ -58,15 +58,24 @@ import networkx as nx
 MAX_CANONICAL_OUT: int = 3
 
 
+def _feature(value: object) -> str:
+    """A structural feature as a string; anything else (missing, None, …) is "?".
+
+    Keeps the signature sortable: a non-string feature would make ``sorted``
+    compare str with None and raise. Every string feature hashes as before.
+    """
+    return value if isinstance(value, str) else "?"
+
+
 def _structural_node_hash(G: nx.DiGraph, n: str) -> str:
     """WL 1-hop neighborhood hash — structural features only (no integrity/role)."""
-    node_type = G.nodes[n].get("node_type", "?")
+    node_type = _feature(G.nodes[n].get("node_type"))
     in_sig = sorted(
-        (G.nodes[nb].get("node_type", "?"), G.edges[nb, n].get("relation", "?"))
+        (_feature(G.nodes[nb].get("node_type")), _feature(G.edges[nb, n].get("relation")))
         for nb in G.predecessors(n)
     )
     out_sig = sorted(
-        (G.nodes[nb].get("node_type", "?"), G.edges[n, nb].get("relation", "?"))
+        (_feature(G.nodes[nb].get("node_type")), _feature(G.edges[n, nb].get("relation")))
         for nb in G.successors(n)
     )
     s = json.dumps({"t": node_type, "i": in_sig, "o": out_sig}, separators=(",", ":"))

@@ -85,53 +85,78 @@ def d_avoiding_reachable(
 
 
 def check_flow(G: nx.DiGraph) -> bool:
-    """f_flow(G) = 1 iff ∃ u ∈ U_src, s ∈ S : u ⇝_D s."""
+    """f_flow(G) = 1 iff ∃ u ∈ U_src, s ∈ S : u ⇝_D s.
+
+    One breadth-first search seeded with every source at once, so the cost is
+    O(|N| + |R|) however many untrusted sources the graph has. (Searching from
+    each source separately is O(|U_src| · (|N| + |R|)), which is quadratic in a
+    session where every step reads external data.)
+    """
     sinks = get_sinks(G)
-    endorsers = get_endorsers(G)
     if not sinks:
         return False
-    for source in get_untrusted_sources(G):
-        if d_avoiding_reachable(G, source, sinks, endorsers):
-            return True
+    endorsers = get_endorsers(G)
+    sources = get_untrusted_sources(G)
+    if any(u in sinks for u in sources):
+        return True
+    visited: set[str] = set(sources)
+    queue: deque[str] = deque(sources)
+    while queue:
+        node = queue.popleft()
+        for nbr in G.successors(node):
+            if nbr in sinks:
+                return True
+            if nbr not in visited and nbr not in endorsers:
+                visited.add(nbr)
+                queue.append(nbr)
     return False
 
 
 def flow_witnesses(G: nx.DiGraph) -> list[tuple[str, str, list[str]]]:
     """Return a list of (source, sink, path) triples for every detected flow.
 
-    Each path is the shortest D-avoiding path from source to sink.
-    Useful for debugging and trace interpretation.
+    Each path is the shortest D-avoiding path from source to sink: the BFS-tree
+    path, found by one search per source rather than one per (source, sink)
+    pair. Useful for debugging and trace interpretation.
     """
     sinks = get_sinks(G)
+    if not sinks:
+        return []
     endorsers = get_endorsers(G)
     witnesses: list[tuple[str, str, list[str]]] = []
 
     for source in get_untrusted_sources(G):
+        parent = _d_avoiding_bfs_tree(G, source, endorsers)
         for sink in sinks:
-            path = _shortest_d_avoiding_path(G, source, sink, endorsers)
-            if path is not None:
-                witnesses.append((source, sink, path))
+            if sink in parent:
+                witnesses.append((source, sink, _tree_path(parent, sink)))
     return witnesses
 
 
-def _shortest_d_avoiding_path(
+def _d_avoiding_bfs_tree(
     G: nx.DiGraph,
     source: str,
-    target: str,
     endorsers: frozenset[str],
-) -> list[str] | None:
-    """BFS returning the shortest D-avoiding path, or None."""
-    if source == target:
-        return [source]
-    visited: set[str] = {source}
-    queue: deque[list[str]] = deque([[source]])
+) -> dict[str, str | None]:
+    """BFS from ``source`` that never enters an endorser; returns parent pointers.
+
+    A node's parent is the node from which it was first reached, so the tree
+    path to any node is a shortest D-avoiding path to it.
+    """
+    parent: dict[str, str | None] = {source: None}
+    queue: deque[str] = deque([source])
     while queue:
-        path = queue.popleft()
-        node = path[-1]
+        node = queue.popleft()
         for nbr in G.successors(node):
-            if nbr == target:
-                return [*path, nbr]
-            if nbr not in visited and nbr not in endorsers:
-                visited.add(nbr)
-                queue.append([*path, nbr])
-    return None
+            if nbr not in parent and nbr not in endorsers:
+                parent[nbr] = node
+                queue.append(nbr)
+    return parent
+
+
+def _tree_path(parent: dict[str, str | None], node: str) -> list[str]:
+    path = [node]
+    while (prev := parent[path[-1]]) is not None:
+        path.append(prev)
+    path.reverse()
+    return path

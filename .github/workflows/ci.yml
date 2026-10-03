@@ -51,3 +51,7 @@ jobs:
         run: uv run python -c "import flint.layer1_graph.visualize, flint.layer3_orchestration.runner, torch, sklearn"
       - name: Build the distribution
         run: uv build
+      - name: Build with the declared minimum setuptools
+        run: |
+          echo "setuptools==77.0.3" > "$RUNNER_TEMP/floor.txt"
+          uv build --wheel -o "$RUNNER_TEMP/floor" --build-constraint "$RUNNER_TEMP/floor.txt"

@@ -71,6 +71,7 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.11",
     "types-networkx",
+    "hypothesis>=6.100",
 ]
 
 # On Linux, take torch from the CPU-only index: the default PyPI wheel pulls
@@ -84,7 +85,8 @@ url = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
 [build-system]
-requires = ["setuptools>=68"]
+# 77: the first release that accepts PEP 639 `license = "MIT"` / `license-files`.
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.dynamic]

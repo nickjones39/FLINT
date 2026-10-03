@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -246,6 +247,24 @@ def _prov_json_files(directory: Path) -> list[Path]:
             if not p.name.endswith(".transcript.json")]
 
 
+_NODE_SECTIONS = ("entity", "activity", "agent")
+
+
+def _read_trace(p: Path) -> dict:
+    """Read one PROV-JSON trace, refusing a JSON file that is not one.
+
+    Any other JSON in a trace directory (a manifest, a config) would otherwise
+    load as an empty graph and be scored as a benign trace, inflating TN.
+    """
+    doc = json.loads(p.read_text(encoding="utf-8"))
+    if not isinstance(doc, dict) or not any(k in doc for k in _NODE_SECTIONS):
+        raise ValueError(
+            f"{p}: not a PROV-JSON trace (no entity/activity/agent section); "
+            "point --traces at the prov/ directory of a corpus"
+        )
+    return doc
+
+
 def load_traces_from_dir(trace_dir: Path) -> list[Trace]:
     """Load PROV-JSON traces from trace_dir, handling both flat and subdirectory layouts.
 
@@ -261,14 +280,27 @@ def load_traces_from_dir(trace_dir: Path) -> list[Trace]:
 
     The parent folder name becomes attack_type.  Filename suffix (_benign /
     _injection) determines ground_truth.
+
+    Raises ``ValueError`` for a mixed layout (top-level traces *and* attack
+    subdirectories: one of the two would be silently ignored) and for a JSON
+    file that is not a PROV-JSON trace.
     """
+    trace_dir = Path(trace_dir)
+    if not trace_dir.is_dir():
+        raise NotADirectoryError(f"trace directory not found: {trace_dir}")
     traces: list[Trace] = []
 
     json_files = _prov_json_files(trace_dir)
+    subdirs = sorted(p for p in trace_dir.iterdir() if p.is_dir())
+    if json_files and any(_prov_json_files(d) for d in subdirs):
+        raise ValueError(
+            f"{trace_dir}: holds both top-level traces and attack subdirectories; "
+            "use one layout"
+        )
     if json_files:
         # Flat layout
         for p in json_files:
-            doc = json.loads(p.read_text(encoding="utf-8"))
+            doc = _read_trace(p)
             ground_truth = "injection" in p.stem.lower()
             attack_type = "benign" if not ground_truth else "unknown"
             traces.append(Trace(
@@ -279,10 +311,10 @@ def load_traces_from_dir(trace_dir: Path) -> list[Trace]:
             ))
     else:
         # Subdirectory layout — each subfolder is an attack type
-        for subdir in sorted(p for p in trace_dir.iterdir() if p.is_dir()):
+        for subdir in subdirs:
             attack_type = subdir.name  # "benign", "direct", "injecagent", ...
             for p in _prov_json_files(subdir):
-                doc = json.loads(p.read_text(encoding="utf-8"))
+                doc = _read_trace(p)
                 ground_truth = "injection" in p.stem.lower()
                 # The same (suite, user_task, injection_task) stem is reused across
                 # attack subdirs (direct/important_instructions/injecagent), so the
@@ -318,8 +350,8 @@ def _cli() -> None:
     config = SweepConfig.from_yaml(args.config)
     traces = load_traces_from_dir(args.traces)
     if not traces:
-        print(f"No trace files found in {args.traces}")
-        return
+        # Fail, rather than exit 0 and leave a previous run's outputs looking current.
+        sys.exit(f"No trace files found in {args.traces}")
 
     print(f"Running sweep: {len(traces)} traces x "
           f"{len(config.detectors)} detectors x "
