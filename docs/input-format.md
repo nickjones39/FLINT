@@ -76,9 +76,9 @@ Under `strict=True`, an activity with a missing or unrecognised role is **reject
 (`ProvFormatError`). There is no safe default: reading it as `neutral` could hide a
 sink, and reading it as `sink` would turn every unlabelled step into an alarm.
 
-> Endorsements are currently unauthenticated: anything labelled `endorser` is trusted
-> to be one. That is the label forgery the manuscript's Theorem 2 identifies.
-> Signed labels and capability-bound endorsements are planned for v0.3.0.
+> Unless you verify them, endorsements are unauthenticated: anything labelled
+> `endorser` is trusted to be one. That is the label forgery the manuscript's
+> Theorem 2 identifies. See [Signed labels and capabilities](#signed-labels-and-capabilities-v03-flintattribution).
 
 Roles exist only on activities: S and D are sets of activities. The detector ignores
 an `adprov:role` on an entity or agent in either mode, and `strict=True` rejects it.
@@ -101,6 +101,64 @@ literals.
 
 Label values may be bare strings (`"untrusted"`) or PROV-JSON typed literals
 (`{"$": "untrusted", "type": "xsd:string"}`). Both are read the same way.
+
+## Signed labels and capabilities (v0.3, `flint.attribution`)
+
+Without these, FLINT believes every label in the document. That leaves the two
+forgeries of the manuscript's Theorem 2 open: an untrusted entity relabelled
+`trusted`, or an activity presented as an endorser. With them,
+`verify_attribution` withdraws every claim that does not verify before `f_flow` runs
+(manuscript §V, Definitions 5 and 6).
+
+**Entity (Definition 5).** The recorder signs the label it assigns:
+
+| Attribute | Value |
+|---|---|
+| `adprov:integrity` | the label, as above |
+| `adprov:source_channel` | the channel the entity arrived on |
+| `adprov:label_kid` | the id of the recorder key that signed |
+| `adprov:label_sig` | base64url (unpadded) signature over entity id ‖ channel ‖ label ‖ `adprov:content_hash` |
+
+An entity stays `trusted` only if this signature verifies under the recorder's keys.
+A missing or invalid signature, a missing label or an unrecognised label all read
+as `untrusted`. An `untrusted` label needs no signature.
+
+**Endorser (Definition 6).** The principal that authorised the action issues a
+capability:
+
+| Attribute | Value |
+|---|---|
+| `adprov:role` | `endorser` |
+| `adprov:action` | the sanctioned action, e.g. `approve_submission` |
+| `adprov:capability` | `flintcap1.<base64url(payload)>.<base64url(signature)>` |
+
+The payload holds the key id, the action, a scope, an optional expiry (Unix
+seconds) and a nonce. An endorser stays in D only if all of the following hold:
+- the capability verifies under the authorising principal's keys;
+- it was issued for this activity's `adprov:action`;
+- it has not expired;
+- its scope matches the trace being checked (`scope["trace"]`), when a trace id is
+  given;
+- it passes any scope check the deployment supplies;
+- no other activity carries the same capability.
+
+Otherwise the activity is treated as `neutral`.
+
+The two kinds of signature use **separate keys**, and `verify_attribution` takes
+them separately. One attests where data came from, the other what a user
+authorised. Neither verifies as the other.
+
+**Sinks.** The sink set is policy, not a claim of the record. Passing
+`sink_actions` makes every activity whose `adprov:action` is listed a sink, so a
+record cannot drop a sink by relabelling it.
+
+Signatures use length-prefixed, domain-separated messages (see
+`flint/attribution/__init__.py`), so they reproduce across implementations. FLINT
+never holds keys: it signs and verifies through two small protocols, `Signer` and
+`Verifier`. Ed25519 implementations are in `flint.attribution.ed25519` (the
+`[attribution]` extra). Out of scope, as in the paper:
+- a compromised signing key;
+- a record that omits a relation entirely.
 
 ## Relations
 

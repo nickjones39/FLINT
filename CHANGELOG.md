@@ -1,5 +1,37 @@
 # Changelog
 
+## Unreleased (0.3.0)
+
+Verifiable trust attribution: the manuscript's §V, Definitions 5 and 6. Nothing
+existing changes: `f_flow`, the loader and the adversaries behave exactly as in
+0.2.1. Verification is a separate, opt-in step before detection.
+
+### Added
+- **`flint.attribution`.** It provides `verify_attribution(G, labels=…,
+  capabilities=…)`, which returns the graph with every unverified trust claim
+  withdrawn:
+  - an entity stays `trusted` only with a valid recorder signature over its id,
+    channel, label and content hash, and anything else reads `untrusted`
+    (fail-closed);
+  - an activity stays an endorser only with a valid capability for its declared
+    action, unexpired, scoped to the trace and used by no other activity.
+
+  A `sink_actions` policy makes sinks unremovable. The producer side is
+  `sign_source_label` and `issue_capability`. The recorder and capability keys are
+  separate parameters, and neither verifies as the other.
+- **`Signer` / `Verifier` protocols.** FLINT never holds keys. `flint.attribution`
+  needs only the core.
+- **`flint.attribution.ed25519`.** Ed25519 implementations with key ids, rotation
+  and fail-safe revocation, in a new `[attribution]` extra (cryptography).
+- **Tests.** The relabel and both endorser attacks fail once verification is on. A
+  property test checks Theorem 3: without either key, no attack lowers the verified
+  verdict.
+- **A measured result on the AgentDojo-PROV corpus.** All six backends' injection
+  traces were signed with real Ed25519 keys. The relabel, endorser and general
+  endorser attacks cut f_flow to 0% unverified; verification restores exactly the
+  undefended rate on every backend (e.g. DeepSeek 58.9%). Signing and verification
+  take about 0.12 ms and 0.13 ms per trace.
+
 ## 0.2.1 — 2026-10-03
 
 It fixes what three rounds of linting, fuzzing, property-based testing and code

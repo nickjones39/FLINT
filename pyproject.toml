@@ -47,7 +47,13 @@ experiments = [
     "torch>=2.2",
     "scikit-learn>=1.4",
 ]
+# Verifiable trust attribution: the Ed25519 Signer/Verifier in flint.attribution.ed25519.
+# flint.attribution itself needs only the core; a deployment may bring its own keystore.
+attribution = [
+    "cryptography>=42",
+]
 all = [
+    "cryptography>=42",
     "pyyaml>=6.0",
     "pandas>=2.2",
     "pyarrow>=16.0",

@@ -83,6 +83,8 @@ flint/
   __init__.py            # the versioned public API (flint.__all__)
   spec.py                # the input vocabulary (adprov: labels) as constants
   errors.py              # ProvFormatError
+  attribution/           # verifiable trust attribution: signed labels, capabilities,
+                         #   verify_attribution (+ ed25519.py, the [attribution] extra)
   paths.py               # corpus_root()/output_root() + corpus file iterators —
                          #   override via FLINT_CORPUS_ROOT / FLINT_OUTPUT_ROOT
   layer1_graph/          # load.py (PROV-JSON → typed graph) · flow.py (flow relation,
@@ -164,6 +166,7 @@ on networkx; everything else is an extra.
 | `sweep` | pyyaml, pandas, pyarrow | the detector × adversary sweep (`runner.py`) |
 | `viz` | prov, pydot | PROV rendering (`visualize.py`); also needs the Graphviz `dot` binary |
 | `experiments` | numpy, torch, scikit-learn (+ `sweep`) | the learned baselines in `experiments/` |
+| `attribution` | cryptography | Ed25519 keys for `flint.attribution` |
 | `all` | all of the above | |
 
 ### Developing (uv)
@@ -223,9 +226,28 @@ if result:
   (`strict=False`) is the one the published results use; on well-formed input the
   two give identical graphs.
 - **Pin a version.** Only the names in `flint.__all__` form the versioned API.
-- **Endorsements are not yet authenticated.** A forged `endorser` role or a relabelled
-  entity evades `f_flow` by design. That is the trust attack the theory isolates.
-  Signed labels and capability-bound endorsements are planned for v0.3.0.
+- **Verify trust claims before you believe them.** Without verification, a forged
+  `endorser` role or a relabelled entity evades `f_flow`. That is the trust attack the
+  theory isolates. `flint.verify_attribution` checks signed labels and capability-bound
+  endorsements (manuscript §V), and withdraws every claim that does not verify:
+
+  ```python
+  from flint.attribution.ed25519 import Ed25519Verifier   # needs the [attribution] extra
+
+  G = flint.load_prov_graph(doc, strict=True)
+  checked = flint.verify_attribution(
+      G,
+      labels=Ed25519Verifier(recorder_public_keys),       # who may sign source labels
+      capabilities=Ed25519Verifier(approver_public_keys), # who may authorise actions
+      trace_id="application-42",
+  )
+  if flint.f_flow(checked.graph):
+      ...
+  ```
+
+  The recorder signs labels with `flint.sign_source_label`, and the approver issues
+  capabilities with `flint.issue_capability`. Both take any object with a `kid` and a
+  `sign(bytes)` method, so keys can live in a hardware or OS keystore.
 
 ---
 
