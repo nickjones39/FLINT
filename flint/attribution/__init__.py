@@ -24,9 +24,15 @@ keystore. ``flint.attribution.ed25519`` provides Ed25519 implementations (the
 ``[attribution]`` extra). The two keys are deliberately separate parameters: they
 attest different things, and Theorem 3 needs neither to imply the other.
 
+* **Relation commitment (§V's closing remark).** Labels bind to entities, not to
+  edges, so a tool could still *omit* a relation and break the flow path. The
+  recorder therefore also signs, with sk_rec, a Merkle root (RFC 6962 hashing)
+  over every flow edge it emitted. ``verify_attribution(..., relations=token)``
+  recomputes the root from the graph and reports ``record_complete``; an omitted
+  or added edge makes it False, which a deployment treats as an alert.
+
 Out of scope, as in the paper: compromise of sk_rec or sk_cap (whoever holds a key
-can sign anything it covers), and a record that omits a relation altogether.
-Signatures make labels unforgeable, not correct.
+can sign anything it covers). Signatures make labels unforgeable, not correct.
 
 Wire format (version 1)
 -----------------------
@@ -46,6 +52,7 @@ Activity attributes: ``adprov:action`` and ``adprov:capability``, a token string
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import secrets
 import time
@@ -77,7 +84,10 @@ CAPABILITY_KEY = "adprov:capability"
 
 SOURCE_TAG = b"FLINT/source-label/v1\x00"
 CAPABILITY_TAG = b"FLINT/capability/v1\x00"
+RELATIONS_TAG = b"FLINT/relations/v1\x00"
+EDGE_TAG = b"FLINT/edge/v1\x00"
 TOKEN_PREFIX = "flintcap1"
+RELATIONS_PREFIX = "flintrel1"
 
 ScopeValue = str | Sequence[str]
 
@@ -156,6 +166,46 @@ def capability_message(
     )
 
 
+# --- relation commitment (Merkle root over the flow edges) ---------------------
+
+def _sha256(data: bytes) -> bytes:
+    return hashlib.sha256(data).digest()
+
+
+def _merkle_root(leaves: list[bytes]) -> bytes:
+    """RFC 6962 Merkle tree hash: leaf = H(0x00 || d), node = H(0x01 || l || r)."""
+    if not leaves:
+        return _sha256(b"")
+    level = [_sha256(b"\x00" + leaf) for leaf in leaves]
+
+    def mth(nodes: list[bytes]) -> bytes:
+        if len(nodes) == 1:
+            return nodes[0]
+        k = 1 << ((len(nodes) - 1).bit_length() - 1)   # largest power of two < n
+        return _sha256(b"\x01" + mth(nodes[:k]) + mth(nodes[k:]))
+
+    return mth(level)
+
+
+def relation_leaves(G: nx.DiGraph) -> list[bytes]:
+    """The committed set: one leaf per flow edge (relation, from, to), sorted."""
+    leaves = {
+        _frame(EDGE_TAG, str(d.get("relation", "")).encode(), str(u).encode(), str(v).encode())
+        for u, v, d in G.edges(data=True)
+    }
+    return sorted(leaves)
+
+
+def relations_root(G: nx.DiGraph) -> bytes:
+    """Merkle root over ``relation_leaves(G)``; independent of edge order."""
+    return _merkle_root(relation_leaves(G))
+
+
+def relations_message(trace_id: str, root: bytes, count: int) -> bytes:
+    """The bytes the recorder signs to commit to a trace's relations."""
+    return _frame(RELATIONS_TAG, trace_id.encode(), root, str(count).encode())
+
+
 def _b64(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
 
@@ -209,6 +259,47 @@ def issue_capability(
     }
     body = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return f"{TOKEN_PREFIX}.{_b64(body.encode())}.{_b64(signer.sign(message))}"
+
+
+def commit_relations(signer: Signer, G: nx.DiGraph, trace_id: str) -> str:
+    """The recorder's signed commitment to every flow edge of ``G`` (use sk_rec).
+
+    ``G`` is the graph as emitted, i.e. ``load_prov_graph(doc)`` of the document the
+    recorder writes. Store the returned token with the trace and pass it to
+    ``verify_attribution(..., relations=token, trace_id=trace_id)``.
+    """
+    root, count = relations_root(G), len(relation_leaves(G))
+    payload = {"kid": signer.kid, "trace": trace_id, "root": _b64(root), "count": count}
+    body = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    sig = signer.sign(relations_message(trace_id, root, count))
+    return f"{RELATIONS_PREFIX}.{_b64(body.encode())}.{_b64(sig)}"
+
+
+def _check_relations(
+    G: nx.DiGraph, token: object, labels: Verifier, trace_id: str | None
+) -> str | None:
+    """None if ``token`` is a valid commitment to exactly G's flow edges."""
+    if not isinstance(token, str):
+        return "no relation commitment"
+    parts = token.split(".")
+    if len(parts) != 3 or parts[0] != RELATIONS_PREFIX:
+        return "malformed relation commitment"
+    try:
+        payload = json.loads(_unb64(parts[1]).decode(), object_pairs_hook=_no_duplicates)
+        signature, root = _unb64(parts[2]), _unb64(payload["root"])
+        kid, trace, count = payload["kid"], payload["trace"], payload["count"]
+    except (ValueError, UnicodeDecodeError, KeyError, TypeError, AttributeError):
+        return "malformed relation commitment"
+    if not (isinstance(kid, str) and isinstance(trace, str)
+            and isinstance(count, int) and not isinstance(count, bool)):
+        return "malformed relation commitment"
+    if not labels.verify(kid, relations_message(trace, root, count), signature):
+        return "relation commitment does not verify"
+    if trace_id is not None and trace != trace_id:
+        return "relation commitment is for another trace"
+    if relations_root(G) != root or len(relation_leaves(G)) != count:
+        return "recorded relations differ from the committed set"
+    return None
 
 
 # --- verification ------------------------------------------------------------
@@ -277,6 +368,19 @@ class AttributionResult:
     """Activities removed from D (now ``neutral``), with the reason."""
     added_sinks: Sequence[str] = ()
     """Activities made sinks by ``sink_actions`` although they did not claim it."""
+    record_complete: bool | None = None
+    """With ``relations=``: whether the graph's flow edges are exactly the
+    committed set. None when no commitment was checked. False means a relation
+    was omitted or added after recording: treat it as an alert, since f_flow
+    cannot see a flow whose edge is missing."""
+    record_issue: str | None = None
+    """Why ``record_complete`` is False."""
+
+    @property
+    def alert(self) -> bool:
+        """f_flow on the verified graph, or an incomplete record: the deployed decision."""
+        from flint.layer1_graph.flow import check_flow
+        return self.record_complete is False or check_flow(self.graph)
 
 
 def _check_label(n: str, d: Mapping[str, Any], labels: Verifier) -> str | None:
@@ -337,6 +441,7 @@ def verify_attribution(
     now: float | None = None,
     scope_check: ScopeCheck | None = None,
     sink_actions: Collection[str] | None = None,
+    relations: str | None = None,
 ) -> AttributionResult:
     """Withdraw every trust claim in ``G`` that does not verify; ``G`` is not modified.
 
@@ -357,7 +462,12 @@ def verify_attribution(
       whatever role it claims. The sink set is policy, not a claim of the record, so
       a record cannot drop a sink by relabelling it.
 
-    Run ``f_flow`` on ``result.graph``.
+    * With ``relations``, the recorder's ``commit_relations`` token is checked
+      against ``G``'s flow edges (under ``labels``: the recorder signs it).
+      ``result.record_complete`` is False if any edge was omitted or added.
+
+    Use ``result.alert`` for the deployed decision (an incomplete record, or f_flow
+    on the verified graph), or run ``f_flow`` on ``result.graph`` yourself.
     """
     now = time.time() if now is None else now
     H = G.copy()
@@ -412,7 +522,15 @@ def verify_attribution(
             d[ROLE_KEY] = SINK
             added_sinks.append(n)
 
-    return AttributionResult(H, downgraded, rejected, tuple(added_sinks))
+    record_complete: bool | None = None
+    record_issue: str | None = None
+    if relations is not None:
+        record_issue = _check_relations(G, relations, labels, trace_id)
+        record_complete = record_issue is None
+
+    return AttributionResult(
+        H, downgraded, rejected, tuple(added_sinks), record_complete, record_issue,
+    )
 
 
 __all__ = [
@@ -426,8 +544,10 @@ __all__ = [
     "Signer",
     "Verifier",
     "capability_message",
+    "commit_relations",
     "decode_capability",
     "issue_capability",
+    "relations_root",
     "sign_source_label",
     "source_label_message",
     "verify_attribution",

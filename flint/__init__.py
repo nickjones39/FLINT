@@ -22,6 +22,7 @@ from flint.attribution import (
     AttributionResult,
     Signer,
     Verifier,
+    commit_relations,
     issue_capability,
     sign_source_label,
     verify_attribution,
@@ -75,6 +76,7 @@ __all__ = [  # noqa: RUF022 — grouped by role, not sorted
     "AttributionResult",
     "sign_source_label",
     "issue_capability",
+    "commit_relations",
     "Signer",
     "Verifier",
     # input vocabulary (docs/input-format.md)

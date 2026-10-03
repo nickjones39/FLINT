@@ -419,3 +419,106 @@ class TestEd25519:
         forged = trust_attribution_endorser_all(bare)
         assert not f_flow(forged)
         assert f_flow(verify_attribution(forged, labels=labels, capabilities=caps).graph)
+
+
+# ---------------------------------------------------------------------------
+# Relation commitment: an omitted (or added) edge is detected
+# ---------------------------------------------------------------------------
+
+from flint import commit_relations  # noqa: E402
+from flint.attribution import relations_root  # noqa: E402
+
+
+class TestRelationCommitment:
+    def test_rfc6962_vectors(self):
+        from flint.attribution import _merkle_root
+        assert _merkle_root([]).hex() == hashlib.sha256(b"").hexdigest()
+        # MTH of one empty leaf = SHA-256(0x00)
+        assert _merkle_root([b""]).hex() == "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d"
+        a, b, c = (hashlib.sha256(b"\x00" + x).digest() for x in (b"a", b"b", b"c"))
+        ab = hashlib.sha256(b"\x01" + a + b).digest()
+        assert _merkle_root([b"a", b"b", b"c"]) == hashlib.sha256(b"\x01" + ab + c).digest()
+
+    def test_root_is_order_independent(self):
+        G = load_prov_graph(_signed_doc(endorse=True))
+        H = nx.DiGraph()
+        H.add_nodes_from(reversed(list(G.nodes(data=True))))
+        H.add_edges_from(reversed(list(G.edges(data=True))))
+        assert relations_root(G) == relations_root(H)
+
+    def test_honest_record_is_complete(self):
+        G = load_prov_graph(_signed_doc(endorse=True), strict=True)
+        token = commit_relations(REC, G, TRACE)
+        r = _verify(G, relations=token, trace_id=TRACE)
+        assert r.record_complete is True and r.record_issue is None
+        assert r.alert is False                      # endorsed flow, complete record
+
+    def test_omitted_edge_is_an_alert(self):
+        """The edge-omission variant the paper leaves open: drop the edge into the sink."""
+        G = load_prov_graph(_signed_doc(), strict=True)
+        token = commit_relations(REC, G, TRACE)
+        H = G.copy()
+        H.remove_edge("adprov:e_mail", "adprov:a_send")
+        assert not f_flow(H)                          # the flow is gone from the record
+        r = _verify(H, relations=token, trace_id=TRACE)
+        assert r.record_complete is False
+        assert "differ" in r.record_issue
+        assert r.alert is True
+
+    def test_added_edge_is_detected(self):
+        G = load_prov_graph(_signed_doc(), strict=True)
+        token = commit_relations(REC, G, TRACE)
+        r = _verify(structural_mimicry(G), relations=token, trace_id=TRACE)
+        assert r.record_complete is False
+
+    def test_relation_type_is_committed(self):
+        G = load_prov_graph(_signed_doc(), strict=True)
+        token = commit_relations(REC, G, TRACE)
+        H = G.copy()
+        H.edges["adprov:e_mail", "adprov:a_send"]["relation"] = "wasDerivedFrom"
+        assert _verify(H, relations=token).record_complete is False
+
+    @pytest.mark.parametrize("mutate,reason", [
+        (lambda t: None, "no relation commitment"),
+        (lambda t: "garbage", "malformed"),
+        (lambda t: t.replace("flintrel1", "flintrel2"), "malformed"),
+        (lambda t: t[:-4] + ("AAAA" if not t.endswith("AAAA") else "BBBB"), "does not verify"),
+    ])
+    def test_bad_tokens(self, mutate, reason):
+        G = load_prov_graph(_signed_doc(), strict=True)
+        r = _verify(G, relations=mutate(commit_relations(REC, G, TRACE)) or 0)
+        assert r.record_complete is False and reason in r.record_issue
+
+    def test_trace_binding_and_key_separation(self):
+        G = load_prov_graph(_signed_doc(), strict=True)
+        assert "another trace" in _verify(
+            G, relations=commit_relations(REC, G, TRACE), trace_id="other").record_issue
+        # committed with the capability key: not the recorder, so it does not verify
+        assert "does not verify" in _verify(
+            G, relations=commit_relations(CAP, G, TRACE)).record_issue
+
+    def test_without_a_commitment_the_check_is_off(self):
+        r = _verify(load_prov_graph(_signed_doc()))
+        assert r.record_complete is None and r.alert == f_flow(r.graph)
+
+
+def _omit_edge(G: nx.DiGraph, k: int) -> nx.DiGraph:
+    H = G.copy()
+    edges = list(H.edges)
+    if edges:
+        H.remove_edge(*edges[k % len(edges)])
+    return H
+
+
+@settings(max_examples=300, deadline=None, suppress_health_check=list(HealthCheck))
+@given(honest_signed_graphs(), st.sampled_from(range(len(ATTACKS) + 1)), st.integers(0, 50))
+def test_theorem_3_with_omission(G, i, k):
+    """With the relation commitment, omitting an edge joins the attacks that cannot
+    lower the deployed decision (``alert``) without a key."""
+    token = commit_relations(REC, G, TRACE)
+    honest = _verify(G, trace_id=TRACE, relations=token)
+    assert honest.record_complete is True and honest.alert == f_flow(G)
+    attack = ATTACKS[i] if i < len(ATTACKS) else (lambda g: _omit_edge(g, k))
+    H = attack(G)
+    attacked = _verify(H, trace_id=TRACE, relations=token)
+    assert attacked.alert >= honest.alert

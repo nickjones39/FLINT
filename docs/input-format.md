@@ -148,6 +148,14 @@ The two kinds of signature use **separate keys**, and `verify_attribution` takes
 them separately. One attests where data came from, the other what a user
 authorised. Neither verifies as the other.
 
+**Omitted relations.** Signed labels bind to entities, not to edges, so a record
+could still drop the one relation that carries a flow. The recorder therefore also
+signs a commitment to the trace's relations with `flint.commit_relations`: a
+Merkle root (RFC 6962 hashing) over every flow edge as (relation, from, to). The
+commitment is stored alongside the trace and passed as
+`verify_attribution(..., relations=token)`. If any edge was omitted, added or
+retyped, `result.record_complete` is False and `result.alert` is True.
+
 **Sinks.** The sink set is policy, not a claim of the record. Passing
 `sink_actions` makes every activity whose `adprov:action` is listed a sink, so a
 record cannot drop a sink by relabelling it.
@@ -156,9 +164,7 @@ Signatures use length-prefixed, domain-separated messages (see
 `flint/attribution/__init__.py`), so they reproduce across implementations. FLINT
 never holds keys: it signs and verifies through two small protocols, `Signer` and
 `Verifier`. Ed25519 implementations are in `flint.attribution.ed25519` (the
-`[attribution]` extra). Out of scope, as in the paper:
-- a compromised signing key;
-- a record that omits a relation entirely.
+`[attribution]` extra). Out of scope, as in the paper: a compromised signing key.
 
 ## Relations
 
