@@ -197,7 +197,7 @@ uv add --editable ../flint-framework                                     # a loc
 
 `pip install "flint-prov @ git+https://github.com/nickjones39/FLINT"` works the same
 way if you do not use uv. Pin a release tag in production, e.g.
-`flint-prov @ git+https://github.com/nickjones39/FLINT@v0.3.0`.
+`flint-prov @ git+https://github.com/nickjones39/FLINT@v0.3.1`.
 
 ---
 
@@ -237,17 +237,26 @@ if result:
   G = flint.load_prov_graph(doc, strict=True)
   checked = flint.verify_attribution(
       G,
-      labels=Ed25519Verifier(recorder_public_keys),       # who may sign source labels
+      labels=Ed25519Verifier(recorder_public_keys),       # who may sign labels and records
       capabilities=Ed25519Verifier(approver_public_keys), # who may authorise actions
+      relations=record_commitment,                        # from flint.commit_record
       trace_id="application-42",
   )
-  if flint.f_flow(checked.graph):
+  if checked.alert:        # f_flow on the verified graph, or an altered record
       ...
   ```
 
-  The recorder signs labels with `flint.sign_source_label`, and the approver issues
-  capabilities with `flint.issue_capability`. Both take any object with a `kid` and a
-  `sign(bytes)` method, so keys can live in a hardware or OS keystore.
+  The producer side:
+  - **The recorder** signs each entity's label with `flint.sign_source_label`, and
+    the whole record with `flint.commit_record`. The commitment covers every edge,
+    node, label and role, so dropping an edge or demoting a sink after recording
+    raises an alert.
+  - **The approver** issues capabilities with `flint.issue_capability`. Scope them to
+    the trace and to the arguments that matter with `flint.argument_scope`, e.g. the
+    recipient, so a redirected action is not covered.
+
+  Both take any object with a `kid` and a `sign(bytes)` method, so keys can live in
+  a hardware or OS keystore.
 
 ---
 

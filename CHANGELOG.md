@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (0.4.0)
+## 0.3.1 — 2026-10-03
 
 ### Added
 - `commit_record(signer, G, trace_id)` commits to the whole record: every flow edge,
