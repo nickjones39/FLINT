@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (0.2.0)
+## 0.2.0 — 2026-10-03
 
 Detection results are unchanged. On the full AgentDojo-PROV corpus (v2.3, six
 backends, 17,664 traces), the default loader produces graphs, witnesses, sweep rows

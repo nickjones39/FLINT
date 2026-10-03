@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "If you use FLINT, please cite the version you used."
+title: "FLINT: Flow-INtegrity Tracking — flow-typed provenance security for LLM agents"
+type: software
+authors:
+  - family-names: Jones
+    given-names: Nicholas
+    affiliation: Torrens University Australia
+version: 0.2.0
+date-released: "2026-10-03"
+license: MIT
+repository-code: "https://github.com/nickjones39/FLINT"
+abstract: >-
+  FLINT consumes LLM-agent execution provenance captured as W3C PROV and
+  detects prompt injection as an information-flow property: untrusted-origin
+  data reaching a privileged action along a path with no authorised
+  endorsement. It ships the flow detector, a fail-closed loader for
+  deployment, and an evasion testbed showing that structural graph attacks
+  cannot silence the detector; only attacks on the trust labels can.
+keywords:
+  - provenance
+  - W3C PROV
+  - prompt injection
+  - LLM agents
+  - information flow

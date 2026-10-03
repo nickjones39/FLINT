@@ -184,7 +184,8 @@ uv add --editable ../flint-framework                                     # a loc
 ```
 
 `pip install "flint-prov @ git+https://github.com/nickjones39/FLINT"` works the same
-way if you do not use uv. Pin a tag (`…/FLINT@v0.2.0`) once one is released.
+way if you do not use uv. Pin a release tag in production, e.g.
+`flint-prov @ git+https://github.com/nickjones39/FLINT@v0.2.0`.
 
 ---
 
@@ -254,7 +255,9 @@ MIT — see [LICENSE](LICENSE).
 
 ## Citation
 
-If you use FLINT, please cite:
+Citation metadata is in [`CITATION.cff`](CITATION.cff) (GitHub's "Cite this
+repository" button reads it). Please cite the version you used. If you use FLINT,
+please cite:
 
 ```
 Nicholas Jones. Provenance-Aware Security for Large Language Model Systems.
